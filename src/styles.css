@@ -1,0 +1,187 @@
+/* Reset & base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f9fafb;
+  color: #333;
+  line-height: 1.6;
+}
+
+a {
+  text-decoration: none;
+  color: #0077ff;
+}
+
+h1, h2, h3 {
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+/* Navbar */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.navbar-left a {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #0077ff;
+}
+
+.navbar-right a {
+  margin-left: 1rem;
+  font-weight: 500;
+  transition: color 0.3s;
+}
+
+.navbar-right a:hover {
+  color: #005ecc;
+}
+
+.login-btn {
+  background: #0077ff;
+  color: white;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  margin-left: 1rem;
+}
+
+.login-btn:hover {
+  background: #005ecc;
+}
+
+/* Containers & cards */
+.container {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.card {
+  background: #fff;
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+}
+
+/* Forms */
+form {
+  margin-top: 1rem;
+}
+
+input, textarea, select {
+  width: 100%;
+  padding: 0.6rem;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+}
+
+button {
+  display: inline-block;
+  background: #0077ff;
+  color: #fff;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+button:hover {
+  background: #005ecc;
+}
+
+/* Auth page */
+.auth-form {
+  max-width: 400px;
+  margin: 2rem auto;
+}
+
+.auth-form .toggle-btn {
+  background: transparent;
+  color: #0077ff;
+  text-decoration: underline;
+  border: none;
+  cursor: pointer;
+  margin-top: -0.5rem;
+}
+
+/* Map container (optional) */
+.leaflet-container {
+  height: 400px;
+  width: 100%;
+  border-radius: 6px;
+  margin-top: 1rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+/* Chat styles (basic) */
+.chat-container {
+  max-width: 600px;
+  margin: 2rem auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.message {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+}
+
+.message.sent {
+  background: #e6f7ff;
+  text-align: right;
+}
+
+.message.received {
+  background: #f1f1f1;
+  text-align: left;
+}
+
+/* Social posts */
+.post {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.post img {
+  max-width: 100%;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.post .caption {
+  font-size: 0.95rem;
+  color: #555;
+}
