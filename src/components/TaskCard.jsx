@@ -1,29 +1,147 @@
-export default function TaskCard({ task, compact }) {
+import { useNavigate } from "react-router-dom";
+
+function formatDate(dateString) {
+  if (!dateString) return "";
+  const d = new Date(dateString);
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function formatDistance(max_distance_km) {
+  if (max_distance_km == null) return "Distance not specified";
+  if (max_distance_km < 1) return "< 1 km away";
+  return `${max_distance_km.toFixed(1)} km away`;
+}
+
+function formatPrice(price_min, price_max, currency = "EUR") {
+  if (price_min == null && price_max == null) return "Price to be discussed";
+  const cur = currency || "EUR";
+  if (price_min != null && price_max != null) {
+    return `${price_min}-${price_max} ${cur}`;
+  }
+  if (price_min != null) return `From ${price_min} ${cur}`;
+  return `Up to ${price_max} ${cur}`;
+}
+
+export default function TaskCard({ task, isOwn }) {
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    navigate(`/task/${task.id}`);
+  };
+
+  const priceLabel = formatPrice(task.price_min, task.price_max, task.currency);
+  const distanceLabel = formatDistance(task.max_distance_km);
+  const postedLabel = task.created_at
+    ? `Posted on ${formatDate(task.created_at)}`
+    : "";
+
   return (
-    <div style={{
-      minWidth: compact ? "200px" : "100%",
-      maxWidth: compact ? "200px" : "100%",
-      border: "1px solid #ddd",
-      borderRadius: "8px",
-      padding: "1rem",
-      background: "#fff",
-      flex: "0 0 auto",
-      boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-      position: "relative",
-      cursor: "pointer"
-    }}>
-      <h3 style={{ margin: 0, fontSize: "1.1rem" }}>{task.title}</h3>
-      <p style={{ fontSize: "0.9rem", color: "#555" }}>{task.description}</p>
-      <p style={{ fontSize: "0.8rem", color: "#777" }}>
-        <strong>{task.category}</strong>
-      </p>
-      <span style={{
-        position: "absolute",
-        right: "10px",
-        bottom: "10px",
-        fontSize: "1.5rem",
-        color: "#2575fc"
-      }}>→</span>
+    <div onClick={handleClick} style={styles.card}>
+      <div style={styles.topRow}>
+        <div style={styles.leftTop}>
+          {task.category && (
+            <span style={styles.category}>{task.category}</span>
+          )}
+          {isOwn && <span style={styles.badge}>My task</span>}
+        </div>
+      </div>
+
+      <h3 style={styles.title}>{task.title}</h3>
+
+      {task.description && (
+        <p style={styles.description}>
+          {task.description.length > 80
+            ? task.description.slice(0, 77) + "..."
+            : task.description}
+        </p>
+      )}
+
+      <div style={styles.bottomRow}>
+        <div style={styles.infoCol}>
+          <span style={styles.price}>{priceLabel}</span>
+          <span style={styles.meta}>{distanceLabel}</span>
+          {postedLabel && <span style={styles.meta}>{postedLabel}</span>}
+        </div>
+        <div style={styles.arrow}>&rarr;</div>
+      </div>
     </div>
   );
 }
+
+const styles = {
+  card: {
+    borderRadius: "12px",
+    border: "1px solid #f0f0f0",
+    padding: "0.75rem 1rem",
+    marginBottom: "0.75rem",
+    background: "#fff",
+    cursor: "pointer",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    height: "100%",
+    transition: "transform 0.15s ease, boxShadow 0.15s ease",
+  },
+  topRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "0.3rem",
+  },
+  leftTop: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+  },
+  category: {
+    fontSize: "0.75rem",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    color: "#777",
+  },
+  badge: {
+    fontSize: "0.75rem",
+    padding: "0.15rem 0.4rem",
+    borderRadius: "999px",
+    background: "#e6f4ff",
+    color: "#007bff",
+    fontWeight: 600,
+  },
+  title: {
+    margin: "0 0 0.3rem 0",
+    fontSize: "1rem",
+    fontWeight: 600,
+  },
+  description: {
+    margin: "0 0 0.6rem 0",
+    color: "#555",
+    fontSize: "0.85rem",
+    flexGrow: 1,
+  },
+  bottomRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginTop: "0.25rem",
+  },
+  infoCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.15rem",
+  },
+  price: {
+    fontSize: "0.9rem",
+    fontWeight: 600,
+  },
+  meta: {
+    fontSize: "0.75rem",
+    color: "#777",
+  },
+  arrow: {
+    fontSize: "1.2rem",
+  },
+};

@@ -70,18 +70,21 @@ export default function Signup() {
       return;
     }
 
-    const userId = data.user.id;
+    const userId = data.user?.id;
+    if (!userId) {
+      setLoading(false);
+      setError("Could not retrieve user id after signup.");
+      return;
+    }
 
     const { error: profileError } = await supabase
       .from("profiles")
       .insert([
         {
           id: userId,
-          name,
-          categories,
-          tools,
-          skills_good: skillsGood,
-          skills_maybe: skillsMaybe,
+          full_name: name,
+          helper_categories: categories,
+          helper_tools: tools,
           is_professional: isProfessional,
         },
       ]);
@@ -94,7 +97,9 @@ export default function Signup() {
     }
 
     alert("Account created! Check your email to confirm.");
-    navigate("/");
+
+    // After signup, send the helper to the setup flow instead of home
+    navigate("/helper-setup");
   };
 
   return (

@@ -7,7 +7,6 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // check if user is logged in
     const getUser = async () => {
       const { data, error } = await supabase.auth.getUser();
       if (data?.user) {
@@ -19,12 +18,10 @@ export default function Navbar() {
 
     getUser();
 
-    // subscribe to auth changes
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
       getUser();
     });
 
-    // cleanup
     return () => {
       listener?.subscription?.unsubscribe();
     };
@@ -41,19 +38,33 @@ export default function Navbar() {
       <div className="navbar-left">
         <Link to="/">WeGotThis</Link>
       </div>
+
       <div className="navbar-right">
+        {/* Always visible */}
         <Link to="/">Home</Link>
         <Link to="/map">Map</Link>
-        <Link to="/add-task">Add Task</Link>
-        <Link to="/profile">Profile</Link>
-        <Link to="/social">Social</Link>
-        <Link to="/courses">Courses</Link>
-        <Link to="/chat">Chat</Link>
 
+        {/* Visible ONLY when logged in */}
+        {user && (
+          <>
+            <Link to="/add-task">Add Task</Link>
+            <Link to="/profile">Profile</Link>
+            {/* <Link to="/social">Social</Link>   👈 HIDDEN */}
+            {/* <Link to="/courses">Courses</Link> 👈 HIDDEN */}
+            <Link to="/chat">Chat</Link>
+          </>
+        )}
+
+        {/* Auth buttons */}
         {!user ? (
-          <Link to="/signup" className="login-btn">
-            Login / Register
-          </Link>
+          <div className="auth-buttons">
+            <Link to="/login" className="login-btn">
+              Login
+            </Link>
+            <Link to="/signup" className="login-btn">
+              Register
+            </Link>
+          </div>
         ) : (
           <button onClick={handleLogout} className="login-btn">
             Logout
