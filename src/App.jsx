@@ -26,6 +26,7 @@ export default function App() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/social" element={<Social />} />
         <Route path="/courses" element={<Courses />} />
+        <Route path="/chat" element={<Chat />} />
         <Route path="/chat/:taskId/:receiverId" element={<Chat />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />

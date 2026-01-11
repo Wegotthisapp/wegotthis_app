@@ -7,12 +7,20 @@ const BLUE = "#1d4ed8";
 
 export default function Chat() {
   const { taskId, receiverId } = useParams(); // strings from URL
+  const safeTaskId =
+    taskId && taskId !== "null" && taskId !== "undefined" ? taskId : null;
+  const safeReceiverId =
+    receiverId && receiverId !== "null" && receiverId !== "undefined" ? receiverId : null;
   const [me, setMe] = useState(null);        // { id, email, ... }
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [error, setError] = useState("");
   const [helpedTasks, setHelpedTasks] = useState([]);
   const [assignedTasks, setAssignedTasks] = useState([]);
+  const [allTasks, setAllTasks] = useState([]);
+  const [taskQuery, setTaskQuery] = useState("");
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
 
   const listRef = useRef(null);
@@ -22,6 +30,24 @@ export default function Chat() {
     () => (msg) => me && msg.sender_id === me.id,
     [me]
   );
+
+  const filteredTasks = useMemo(() => {
+    if (!me) return [];
+    const query = taskQuery.trim().toLowerCase();
+    const source = searchResults ?? allTasks;
+    return (source || [])
+      .filter((task) => {
+        if (!task?.owner_id) return false;
+        if (task.owner_id === "null" || task.owner_id === "undefined") return false;
+        if (task.owner_id === me.id) return false;
+        if (!query) return true;
+        return (
+          task.title?.toLowerCase().includes(query) ||
+          task.category?.toLowerCase().includes(query)
+        );
+      })
+      .slice(0, 20);
+  }, [allTasks, searchResults, taskQuery, me]);
 
   // 1) get current user once
   useEffect(() => {
@@ -77,16 +103,28 @@ export default function Chat() {
       setAssignedTasks(flattened);
     }
 
+    const { data: tasks, error: tasksErr } = await supabase
+      .from("tasks")
+      .select("id, title, owner_id, category, created_at")
+      .order("created_at", { ascending: false });
+
+    if (tasksErr) {
+      setError((prev) => (prev ? `${prev} | ${tasksErr.message}` : tasksErr.message));
+      setAllTasks([]);
+    } else {
+      setAllTasks(tasks || []);
+    }
+
     setLoadingList(false);
   };
 
   // 2) fetch messages for this task
   const fetchMessages = async () => {
-    if (!taskId) return;
+    if (!safeTaskId) return;
     const { data, error } = await supabase
       .from("messages")
       .select("*")
-      .eq("task_id", taskId)
+      .eq("task_id", safeTaskId)
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -100,15 +138,20 @@ export default function Chat() {
   };
 
   useEffect(() => {
-    if (!taskId) return;
+    if (!safeTaskId) return;
     fetchMessages();
 
     // 3) realtime: subscribe to new messages
     const channel = supabase
-      .channel(`messages:task:${taskId}`)
+      .channel(`messages:task:${safeTaskId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `task_id=eq.${taskId}` },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `task_id=eq.${safeTaskId}`,
+        },
         (payload) => {
           setMessages((prev) => [...prev, payload.new]);
           if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -119,12 +162,43 @@ export default function Chat() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [taskId]);
+  }, [safeTaskId]);
 
   useEffect(() => {
-    if (!me || taskId) return;
+    if (!me || safeTaskId) return;
     fetchChatLists();
-  }, [me, taskId]);
+  }, [me, safeTaskId]);
+
+  useEffect(() => {
+    const runSearch = async () => {
+      if (!me) return;
+      const query = taskQuery.trim();
+      if (!query) {
+        setSearchResults(null);
+        return;
+      }
+
+      setSearching(true);
+      setError("");
+
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("id, title, owner_id, category, created_at")
+        .or(`title.ilike.%${query}%,category.ilike.%${query}%`)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        setError((prev) => (prev ? `${prev} | ${error.message}` : error.message));
+        setSearchResults([]);
+      } else {
+        setSearchResults(data || []);
+      }
+
+      setSearching(false);
+    };
+
+    runSearch();
+  }, [taskQuery, me]);
 
   // 4) send a message
   const sendMessage = async () => {
@@ -132,7 +206,7 @@ export default function Chat() {
       setError("Not logged in");
       return;
     }
-    if (!receiverId) {
+    if (!safeReceiverId || !safeTaskId) {
       setError("Select a task chat first");
       return;
     }
@@ -140,9 +214,9 @@ export default function Chat() {
 
     const { error } = await supabase.from("messages").insert([
       {
-        task_id: taskId,
+        task_id: safeTaskId,
         sender_id: me.id,
-        receiver_id: receiverId, // comes from URL
+        receiver_id: safeReceiverId, // comes from URL
         content: newMessage.trim(),
       },
     ]);
@@ -157,7 +231,7 @@ export default function Chat() {
     fetchMessages();
   };
 
-  const needsPicker = !taskId || !receiverId;
+  const needsPicker = !safeTaskId || !safeReceiverId;
 
   return (
     <div
@@ -270,6 +344,64 @@ export default function Chat() {
                         }}
                       >
                         Chat with helper
+                      </Link>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div style={{ marginTop: "1.2rem" }}>
+                <h3 style={{ marginBottom: "0.4rem" }}>Browse tasks to start a chat</h3>
+                <input
+                  type="text"
+                  value={taskQuery}
+                  onChange={(e) => setTaskQuery(e.target.value)}
+                  placeholder="Search by title or category"
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem 0.7rem",
+                    borderRadius: "8px",
+                    border: "1px solid #d1d5db",
+                    marginBottom: "0.6rem",
+                  }}
+                />
+                {searching && <p>Searching…</p>}
+                {!searching && filteredTasks.length === 0 ? (
+                  <p style={{ color: "#6b7280" }}>No tasks found.</p>
+                ) : (
+                  filteredTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "0.75rem",
+                        padding: "0.6rem 0.8rem",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: "10px",
+                        marginBottom: "0.6rem",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{task.title}</div>
+                        <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                          {task.category || "No category"}
+                        </div>
+                      </div>
+                      <Link
+                        to={`/chat/${task.id}/${task.owner_id}`}
+                        style={{
+                          background: BLUE,
+                          color: "#fff",
+                          padding: "0.45rem 0.9rem",
+                          borderRadius: "999px",
+                          textDecoration: "none",
+                          fontWeight: 600,
+                          fontSize: "0.85rem",
+                        }}
+                      >
+                        Open chat
                       </Link>
                     </div>
                   ))

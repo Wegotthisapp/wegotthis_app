@@ -32,6 +32,15 @@ export default function TaskCard({ task, isOwn }) {
     navigate(`/task/${task.id}`);
   };
 
+  const handleChatClick = (event) => {
+    event.stopPropagation();
+    if (!task.owner_id || task.owner_id === "null" || task.owner_id === "undefined") {
+      navigate("/chat");
+      return;
+    }
+    navigate(`/chat/${task.id}/${task.owner_id}`);
+  };
+
   const priceLabel = formatPrice(task.price_min, task.price_max, task.currency);
   const distanceLabel = formatDistance(task.max_distance_km);
   const postedLabel = task.created_at
@@ -65,7 +74,20 @@ export default function TaskCard({ task, isOwn }) {
           <span style={styles.meta}>{distanceLabel}</span>
           {postedLabel && <span style={styles.meta}>{postedLabel}</span>}
         </div>
-        <div style={styles.arrow}>&rarr;</div>
+        <div style={styles.actionCol}>
+          {!isOwn && (
+            <button
+              type="button"
+              style={{
+                ...styles.chatBtn,
+              }}
+              onClick={handleChatClick}
+            >
+              Chat with this person
+            </button>
+          )}
+          <div style={styles.arrow}>&rarr;</div>
+        </div>
       </div>
     </div>
   );
@@ -128,10 +150,26 @@ const styles = {
     alignItems: "flex-end",
     marginTop: "0.25rem",
   },
+  actionCol: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: "0.4rem",
+  },
   infoCol: {
     display: "flex",
     flexDirection: "column",
     gap: "0.15rem",
+  },
+  chatBtn: {
+    border: "none",
+    borderRadius: "999px",
+    padding: "0.35rem 0.7rem",
+    background: "#7c3aed",
+    color: "#fff",
+    fontWeight: 600,
+    fontSize: "0.75rem",
+    cursor: "pointer",
   },
   price: {
     fontSize: "0.9rem",
