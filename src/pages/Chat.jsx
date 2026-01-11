@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
 const VIOLET = "#7c3aed";
@@ -8,7 +8,13 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function Chat() {
-  const { taskId, otherUserId } = useParams();
+  const { conversationId, taskId, otherUserId } = useParams();
+  const navigate = useNavigate();
+
+  const safeConversationId =
+    conversationId && conversationId !== "null" && conversationId !== "undefined"
+      ? conversationId
+      : null;
   const safeTaskId =
     taskId && taskId !== "null" && taskId !== "undefined" ? taskId : null;
   const safeOtherUserId =
@@ -19,7 +25,9 @@ export default function Chat() {
     safeOtherUserId && UUID_RE.test(safeOtherUserId) ? safeOtherUserId : null;
 
   const [me, setMe] = useState(null);
-  const [conversationId, setConversationId] = useState(null);
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [activeTaskId, setActiveTaskId] = useState(null);
+  const [activeOtherUserId, setActiveOtherUserId] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
   const [taskTitles, setTaskTitles] = useState({});
@@ -30,7 +38,8 @@ export default function Chat() {
 
   const listRef = useRef(null);
 
-  const isThread = Boolean(safeTaskId && effectiveOtherUserId);
+  const isThread = Boolean(safeConversationId);
+  const isTaskStart = Boolean(!safeConversationId && safeTaskId && effectiveOtherUserId);
 
   const isMine = useMemo(
     () => (msg) => me && msg.sender_id === me.id,
@@ -42,7 +51,7 @@ export default function Chat() {
     (async () => {
       const { data, error } = await supabase.auth.getUser();
       if (!mounted) return;
-      if (error || !data?.user) setError("Not logged in");
+      if (error || !data?.user) setError("Please log in");
       else setMe(data.user);
     })();
     return () => {
@@ -63,10 +72,9 @@ export default function Chat() {
 
     const { data: convoData, error: convoError } = await supabase
       .from("conversations")
-      .select("id, task_id, user_a, user_b, last_message_at, updated_at")
+      .select("id, task_id, user_a, user_b, last_message_at")
       .or(`user_a.eq.${me.id},user_b.eq.${me.id}`)
-      .order("last_message_at", { ascending: false, nullsFirst: false })
-      .order("updated_at", { ascending: false });
+      .order("last_message_at", { ascending: false, nullsFirst: false });
 
     if (convoError) {
       setError(convoError.message);
@@ -130,29 +138,32 @@ export default function Chat() {
     setLoadingInbox(false);
   };
 
-  const fetchConversation = async () => {
-    if (!me?.id || !safeTaskId || !effectiveOtherUserId) return;
+  const loadConversationById = async (id) => {
+    if (!me?.id || !id) return;
     setLoadingThread(true);
     setError("");
 
-    const { data, error } = await supabase.rpc("get_or_create_conversation", {
-      task_id: safeTaskId,
-      other_user_id: effectiveOtherUserId,
-    });
+    const { data: convoRow, error: convoError } = await supabase
+      .from("conversations")
+      .select("id, task_id, user_a, user_b")
+      .eq("id", id)
+      .single();
 
-    if (error) {
-      setError(error.message);
+    if (convoError || !convoRow) {
+      setError(convoError?.message || "Conversation not found");
       setLoadingThread(false);
       return;
     }
 
-    const convoId = data?.id || data;
-    setConversationId(convoId);
+    const otherId = convoRow.user_a === me.id ? convoRow.user_b : convoRow.user_a;
+    setActiveConversationId(convoRow.id);
+    setActiveTaskId(convoRow.task_id);
+    setActiveOtherUserId(otherId);
 
     const { data: messageRows, error: messagesError } = await supabase
       .from("messages")
-      .select("id, conversation_id, sender_id, body, created_at, read_at")
-      .eq("conversation_id", convoId)
+      .select("*")
+      .eq("conversation_id", convoRow.id)
       .order("created_at", { ascending: true });
 
     if (messagesError) {
@@ -169,38 +180,62 @@ export default function Chat() {
   };
 
   const markThreadRead = async () => {
-    if (!me?.id || !conversationId) return;
+    if (!me?.id || !activeConversationId) return;
     await supabase
       .from("messages")
       .update({ read_at: new Date().toISOString() })
-      .eq("conversation_id", conversationId)
-      .neq("sender_id", me.id)
+      .eq("conversation_id", activeConversationId)
+      .eq("receiver_id", me.id)
       .is("read_at", null);
   };
 
   useEffect(() => {
     if (!me?.id) return;
-    if (!isThread) {
-      fetchInbox();
+    if (isThread) {
+      loadConversationById(safeConversationId);
       return;
     }
-
-    fetchConversation();
-  }, [me?.id, isThread, safeTaskId, effectiveOtherUserId]);
+    if (isTaskStart) {
+      const run = async () => {
+        setLoadingThread(true);
+        setError("");
+        const { data, error } = await supabase.rpc("get_or_create_conversation_id", {
+          p_task_id: safeTaskId,
+          p_user1: me.id,
+          p_user2: effectiveOtherUserId,
+        });
+        if (error) {
+          setError(error.message);
+          setLoadingThread(false);
+          return;
+        }
+        const convoId = data?.id || data;
+        if (convoId) {
+          navigate(`/chat/c/${convoId}`);
+        } else {
+          setError("Unable to open conversation");
+        }
+        setLoadingThread(false);
+      };
+      run();
+      return;
+    }
+    fetchInbox();
+  }, [me?.id, isThread, isTaskStart, safeConversationId, safeTaskId, effectiveOtherUserId]);
 
   useEffect(() => {
-    if (!conversationId || !me?.id) return;
+    if (!activeConversationId || !me?.id) return;
     markThreadRead();
 
     const channel = supabase
-      .channel(`messages:conversation:${conversationId}`)
+      .channel(`messages:conversation:${activeConversationId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `conversation_id=eq.${conversationId}`,
+          filter: `conversation_id=eq.${activeConversationId}`,
         },
         (payload) => {
           const msg = payload.new;
@@ -218,14 +253,14 @@ export default function Chat() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, me?.id]);
+  }, [activeConversationId, me?.id]);
 
   const sendMessage = async () => {
     if (!me?.id) {
-      setError("Not logged in");
+      setError("Please log in");
       return;
     }
-    if (!conversationId) {
+    if (!activeConversationId || !activeOtherUserId || !activeTaskId) {
       setError("Open a chat first");
       return;
     }
@@ -233,8 +268,10 @@ export default function Chat() {
 
     const { error } = await supabase.from("messages").insert([
       {
-        conversation_id: conversationId,
+        conversation_id: activeConversationId,
+        task_id: activeTaskId,
         sender_id: me.id,
+        receiver_id: activeOtherUserId,
         body: newMessage.trim(),
       },
     ]);
@@ -246,6 +283,14 @@ export default function Chat() {
 
     setNewMessage("");
   };
+
+  if (!me) {
+    return (
+      <div style={{ maxWidth: "760px", margin: "2rem auto", padding: "1.25rem" }}>
+        <p style={{ color: "#ef4444" }}>{error || "Please log in"}</p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -260,11 +305,7 @@ export default function Chat() {
     >
       <h2 style={{ marginTop: 0 }}>{isThread ? "Chat" : "Inbox"}</h2>
 
-      {!me && (
-        <p style={{ color: "#ef4444" }}>{error || "Loading session…"}</p>
-      )}
-
-      {me && !isThread && (
+      {!isThread && !isTaskStart && (
         <>
           <p style={{ color: "#475569" }}>
             Your conversations are listed below.
@@ -275,9 +316,8 @@ export default function Chat() {
           )}
           {!loadingInbox &&
             conversations.map((conv) => (
-              <Link
+              <div
                 key={conv.id}
-                to={`/chat/${conv.task_id}/${conv.otherUserId}`}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -287,8 +327,6 @@ export default function Chat() {
                   border: "1px solid #e2e8f0",
                   borderRadius: "10px",
                   marginBottom: "0.6rem",
-                  textDecoration: "none",
-                  color: "#0f172a",
                 }}
               >
                 <div>
@@ -317,14 +355,31 @@ export default function Chat() {
                       {conv.unreadCount}
                     </span>
                   )}
-                  <span style={{ color: "#94a3b8" }}>&rarr;</span>
+                  <Link
+                    to={`/chat/c/${conv.id}`}
+                    style={{
+                      background: BLUE,
+                      color: "#fff",
+                      padding: "0.35rem 0.7rem",
+                      borderRadius: "999px",
+                      textDecoration: "none",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Open chat
+                  </Link>
                 </div>
-              </Link>
+              </div>
             ))}
         </>
       )}
 
-      {me && isThread && (
+      {isTaskStart && (
+        <p style={{ color: "#475569" }}>Loading chat…</p>
+      )}
+
+      {isThread && (
         <>
           {loadingThread && <p>Loading chat…</p>}
           <div
@@ -364,7 +419,7 @@ export default function Chat() {
                   }}
                   title={new Date(msg.created_at).toLocaleString()}
                 >
-                  {msg.body}
+                  {msg.body ?? msg.content}
                 </div>
               </div>
             ))}

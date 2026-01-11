@@ -27,7 +27,8 @@ export default function App() {
         <Route path="/social" element={<Social />} />
         <Route path="/courses" element={<Courses />} />
         <Route path="/chat" element={<Chat />} />
-        <Route path="/chat/:taskId/:receiverId" element={<Chat />} />
+        <Route path="/chat/c/:conversationId" element={<Chat />} />
+        <Route path="/chat/:taskId/:otherUserId" element={<Chat />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         <Route path="/map" element={<MapPage />} />
