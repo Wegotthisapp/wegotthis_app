@@ -4,165 +4,213 @@ import { supabase } from "../lib/supabaseClient";
 
 const VIOLET = "#7c3aed";
 const BLUE = "#1d4ed8";
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function Chat() {
-  const { taskId, receiverId } = useParams(); // strings from URL
+  const { taskId, otherUserId } = useParams();
   const safeTaskId =
     taskId && taskId !== "null" && taskId !== "undefined" ? taskId : null;
-  const safeReceiverId =
-    receiverId && receiverId !== "null" && receiverId !== "undefined" ? receiverId : null;
-  const [me, setMe] = useState(null);        // { id, email, ... }
+  const safeOtherUserId =
+    otherUserId && otherUserId !== "null" && otherUserId !== "undefined"
+      ? otherUserId
+      : null;
+  const effectiveOtherUserId =
+    safeOtherUserId && UUID_RE.test(safeOtherUserId) ? safeOtherUserId : null;
+
+  const [me, setMe] = useState(null);
+  const [conversationId, setConversationId] = useState(null);
+  const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [taskTitles, setTaskTitles] = useState({});
   const [newMessage, setNewMessage] = useState("");
   const [error, setError] = useState("");
-  const [helpedTasks, setHelpedTasks] = useState([]);
-  const [assignedTasks, setAssignedTasks] = useState([]);
-  const [allTasks, setAllTasks] = useState([]);
-  const [taskQuery, setTaskQuery] = useState("");
-  const [searchResults, setSearchResults] = useState(null);
-  const [searching, setSearching] = useState(false);
-  const [loadingList, setLoadingList] = useState(false);
+  const [loadingInbox, setLoadingInbox] = useState(false);
+  const [loadingThread, setLoadingThread] = useState(false);
 
   const listRef = useRef(null);
 
-  // quick stable filter function
+  const isThread = Boolean(safeTaskId && effectiveOtherUserId);
+
   const isMine = useMemo(
     () => (msg) => me && msg.sender_id === me.id,
     [me]
   );
 
-  const filteredTasks = useMemo(() => {
-    if (!me) return [];
-    const query = taskQuery.trim().toLowerCase();
-    const source = searchResults ?? allTasks;
-    return (source || [])
-      .filter((task) => {
-        if (!task?.owner_id) return false;
-        if (task.owner_id === "null" || task.owner_id === "undefined") return false;
-        if (task.owner_id === me.id) return false;
-        if (!query) return true;
-        return (
-          task.title?.toLowerCase().includes(query) ||
-          task.category?.toLowerCase().includes(query)
-        );
-      })
-      .slice(0, 20);
-  }, [allTasks, searchResults, taskQuery, me]);
-
-  // 1) get current user once
   useEffect(() => {
     let mounted = true;
     (async () => {
       const { data, error } = await supabase.auth.getUser();
-      if (mounted) {
-        if (error || !data?.user) setError("Not logged in");
-        else setMe(data.user);
-      }
+      if (!mounted) return;
+      if (error || !data?.user) setError("Not logged in");
+      else setMe(data.user);
     })();
-    return () => (mounted = false);
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // 1b) fetch task lists for chat picker
-  const fetchChatLists = async () => {
-    if (!me) return;
-    setLoadingList(true);
+  useEffect(() => {
+    if (safeOtherUserId && !effectiveOtherUserId) {
+      setError("Invalid chat recipient");
+    }
+  }, [safeOtherUserId, effectiveOtherUserId]);
+
+  const fetchInbox = async () => {
+    if (!me?.id) return;
+    setLoadingInbox(true);
     setError("");
 
-    const { data: helped, error: helpedErr } = await supabase
-      .from("task_assignments")
-      .select("id, tasks:task_id ( id, title, owner_id, category, created_at )")
-      .eq("user_id", me.id)
-      .order("created_at", { ascending: false });
+    const { data: convoData, error: convoError } = await supabase
+      .from("conversations")
+      .select("id, task_id, user_a, user_b, last_message_at, updated_at")
+      .or(`user_a.eq.${me.id},user_b.eq.${me.id}`)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false });
 
-    if (helpedErr) {
-      setError((prev) => (prev ? `${prev} | ${helpedErr.message}` : helpedErr.message));
-      setHelpedTasks([]);
-    } else {
-      const flattened = (helped || [])
-        .map((row) => row.tasks)
-        .filter((task) => task && task.id && task.owner_id);
-      setHelpedTasks(flattened);
+    if (convoError) {
+      setError(convoError.message);
+      setConversations([]);
+      setLoadingInbox(false);
+      return;
     }
 
-    const { data: assigned, error: assignedErr } = await supabase
-      .from("task_assignments")
-      .select("id, user_id, tasks:task_id ( id, title, owner_id, category, created_at )")
-      .eq("tasks.owner_id", me.id)
-      .order("created_at", { ascending: false });
+    const conversationsList = convoData || [];
+    const conversationIds = conversationsList.map((conv) => conv.id);
+    const taskIds = [...new Set(conversationsList.map((conv) => conv.task_id))];
 
-    if (assignedErr) {
-      setError((prev) => (prev ? `${prev} | ${assignedErr.message}` : assignedErr.message));
-      setAssignedTasks([]);
-    } else {
-      const flattened = (assigned || [])
-        .map((row) => ({
-          task: row.tasks,
-          helperId: row.user_id,
-        }))
-        .filter((row) => row.task && row.task.id && row.helperId);
-      setAssignedTasks(flattened);
+    let unreadByConversation = {};
+    if (conversationIds.length > 0) {
+      const { data: unreadRows, error: unreadError } = await supabase
+        .from("messages")
+        .select("id, conversation_id")
+        .in("conversation_id", conversationIds)
+        .is("read_at", null)
+        .neq("sender_id", me.id);
+
+      if (unreadError) {
+        setError(unreadError.message);
+      } else {
+        unreadByConversation = (unreadRows || []).reduce((acc, row) => {
+          acc[row.conversation_id] = (acc[row.conversation_id] || 0) + 1;
+          return acc;
+        }, {});
+      }
     }
 
-    const { data: tasks, error: tasksErr } = await supabase
-      .from("tasks")
-      .select("id, title, owner_id, category, created_at")
-      .order("created_at", { ascending: false });
+    let titles = {};
+    if (taskIds.length > 0) {
+      const { data: taskRows, error: taskError } = await supabase
+        .from("tasks")
+        .select("id, title")
+        .in("id", taskIds);
 
-    if (tasksErr) {
-      setError((prev) => (prev ? `${prev} | ${tasksErr.message}` : tasksErr.message));
-      setAllTasks([]);
-    } else {
-      setAllTasks(tasks || []);
+      if (taskError) {
+        setError(taskError.message);
+      } else {
+        titles = (taskRows || []).reduce((acc, row) => {
+          acc[row.id] = row.title || "Task";
+          return acc;
+        }, {});
+      }
     }
 
-    setLoadingList(false);
+    setTaskTitles(titles);
+
+    const mapped = conversationsList.map((conv) => {
+      const otherId = conv.user_a === me.id ? conv.user_b : conv.user_a;
+      return {
+        ...conv,
+        otherUserId: otherId,
+        unreadCount: unreadByConversation[conv.id] || 0,
+      };
+    });
+
+    setConversations(mapped);
+    setLoadingInbox(false);
   };
 
-  // 2) fetch messages for this task + 1:1 pair
-  const fetchMessages = async () => {
-    if (!safeTaskId || !safeReceiverId || !me?.id) return;
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("task_id", safeTaskId)
-      .or(
-        `and(sender_id.eq.${me.id},receiver_id.eq.${safeReceiverId}),and(sender_id.eq.${safeReceiverId},receiver_id.eq.${me.id})`
-      )
-      .order("created_at", { ascending: true });
+  const fetchConversation = async () => {
+    if (!me?.id || !safeTaskId || !effectiveOtherUserId) return;
+    setLoadingThread(true);
+    setError("");
+
+    const { data, error } = await supabase.rpc("get_or_create_conversation", {
+      task_id: safeTaskId,
+      other_user_id: effectiveOtherUserId,
+    });
 
     if (error) {
       setError(error.message);
+      setLoadingThread(false);
+      return;
+    }
+
+    const convoId = data?.id || data;
+    setConversationId(convoId);
+
+    const { data: messageRows, error: messagesError } = await supabase
+      .from("messages")
+      .select("id, conversation_id, sender_id, body, created_at, read_at")
+      .eq("conversation_id", convoId)
+      .order("created_at", { ascending: true });
+
+    if (messagesError) {
+      setError(messagesError.message);
       setMessages([]);
     } else {
-      setMessages(data || []);
-      // scroll to bottom
-      if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+      setMessages(messageRows || []);
+      if (listRef.current) {
+        listRef.current.scrollTop = listRef.current.scrollHeight;
+      }
     }
+
+    setLoadingThread(false);
+  };
+
+  const markThreadRead = async () => {
+    if (!me?.id || !conversationId) return;
+    await supabase
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", me.id)
+      .is("read_at", null);
   };
 
   useEffect(() => {
-    if (!safeTaskId || !safeReceiverId || !me?.id) return;
-    fetchMessages();
+    if (!me?.id) return;
+    if (!isThread) {
+      fetchInbox();
+      return;
+    }
 
-    // 3) realtime: subscribe to new messages
+    fetchConversation();
+  }, [me?.id, isThread, safeTaskId, effectiveOtherUserId]);
+
+  useEffect(() => {
+    if (!conversationId || !me?.id) return;
+    markThreadRead();
+
     const channel = supabase
-      .channel(`messages:task:${safeTaskId}:${me.id}:${safeReceiverId}`)
+      .channel(`messages:conversation:${conversationId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `task_id=eq.${safeTaskId}`,
+          filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
           const msg = payload.new;
-          const inPair =
-            (msg.sender_id === me.id && msg.receiver_id === safeReceiverId) ||
-            (msg.sender_id === safeReceiverId && msg.receiver_id === me.id);
-          if (!inPair) return;
           setMessages((prev) => [...prev, msg]);
-          if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+          if (listRef.current) {
+            listRef.current.scrollTop = listRef.current.scrollHeight;
+          }
+          if (msg.sender_id !== me.id) {
+            markThreadRead();
+          }
         }
       )
       .subscribe();
@@ -170,62 +218,24 @@ export default function Chat() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [safeTaskId, safeReceiverId, me?.id]);
+  }, [conversationId, me?.id]);
 
-  useEffect(() => {
-    if (!me || safeTaskId) return;
-    fetchChatLists();
-  }, [me, safeTaskId]);
-
-  useEffect(() => {
-    const runSearch = async () => {
-      if (!me) return;
-      const query = taskQuery.trim();
-      if (!query) {
-        setSearchResults(null);
-        return;
-      }
-
-      setSearching(true);
-      setError("");
-
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("id, title, owner_id, category, created_at")
-        .or(`title.ilike.%${query}%,category.ilike.%${query}%`)
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        setError((prev) => (prev ? `${prev} | ${error.message}` : error.message));
-        setSearchResults([]);
-      } else {
-        setSearchResults(data || []);
-      }
-
-      setSearching(false);
-    };
-
-    runSearch();
-  }, [taskQuery, me]);
-
-  // 4) send a message
   const sendMessage = async () => {
-    if (!me) {
+    if (!me?.id) {
       setError("Not logged in");
       return;
     }
-    if (!safeReceiverId || !safeTaskId) {
-      setError("Select a task chat first");
+    if (!conversationId) {
+      setError("Open a chat first");
       return;
     }
     if (!newMessage.trim()) return;
 
     const { error } = await supabase.from("messages").insert([
       {
-        task_id: safeTaskId,
+        conversation_id: conversationId,
         sender_id: me.id,
-        receiver_id: safeReceiverId, // comes from URL
-        content: newMessage.trim(),
+        body: newMessage.trim(),
       },
     ]);
 
@@ -235,11 +245,7 @@ export default function Chat() {
     }
 
     setNewMessage("");
-    // fetch as a fallback (realtime should also push it)
-    fetchMessages();
   };
-
-  const needsPicker = !safeTaskId || !safeReceiverId;
 
   return (
     <div
@@ -252,176 +258,75 @@ export default function Chat() {
         boxShadow: "0 0 12px rgba(0,0,0,0.08)",
       }}
     >
-      <h2 style={{ marginTop: 0 }}>Chat</h2>
+      <h2 style={{ marginTop: 0 }}>{isThread ? "Chat" : "Inbox"}</h2>
 
       {!me && (
-        <p style={{ color: "#ef4444" }}>
-          {error || "Loading session…"}
-        </p>
+        <p style={{ color: "#ef4444" }}>{error || "Loading session…"}</p>
       )}
 
-      {me && needsPicker && (
+      {me && !isThread && (
         <>
           <p style={{ color: "#475569" }}>
-            Pick a task to start chatting with the other person.
+            Your conversations are listed below.
           </p>
-
-          {loadingList && <p>Loading chats…</p>}
-
-          {!loadingList && (
-            <>
-              <div style={{ marginTop: "1rem" }}>
-                <h3 style={{ marginBottom: "0.4rem" }}>Tasks you helped with</h3>
-                {helpedTasks.length === 0 ? (
-                  <p style={{ color: "#6b7280" }}>No chats yet.</p>
-                ) : (
-                  helpedTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "0.75rem",
-                        padding: "0.6rem 0.8rem",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "10px",
-                        marginBottom: "0.6rem",
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{task.title}</div>
-                        <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                          {task.category || "No category"}
-                        </div>
-                      </div>
-                      <Link
-                        to={`/chat/${task.id}/${task.owner_id}`}
-                        style={{
-                          background: BLUE,
-                          color: "#fff",
-                          padding: "0.45rem 0.9rem",
-                          borderRadius: "999px",
-                          textDecoration: "none",
-                          fontWeight: 600,
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        Open chat
-                      </Link>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div style={{ marginTop: "1.2rem" }}>
-                <h3 style={{ marginBottom: "0.4rem" }}>Your tasks with helpers</h3>
-                {assignedTasks.length === 0 ? (
-                  <p style={{ color: "#6b7280" }}>No helpers assigned yet.</p>
-                ) : (
-                  assignedTasks.map((row) => (
-                    <div
-                      key={`${row.task.id}-${row.helperId}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "0.75rem",
-                        padding: "0.6rem 0.8rem",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "10px",
-                        marginBottom: "0.6rem",
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{row.task.title}</div>
-                        <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                          {row.task.category || "No category"}
-                        </div>
-                      </div>
-                      <Link
-                        to={`/chat/${row.task.id}/${row.helperId}`}
-                        style={{
-                          background: VIOLET,
-                          color: "#fff",
-                          padding: "0.45rem 0.9rem",
-                          borderRadius: "999px",
-                          textDecoration: "none",
-                          fontWeight: 600,
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        Chat with helper
-                      </Link>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div style={{ marginTop: "1.2rem" }}>
-                <h3 style={{ marginBottom: "0.4rem" }}>Browse tasks to start a chat</h3>
-                <input
-                  type="text"
-                  value={taskQuery}
-                  onChange={(e) => setTaskQuery(e.target.value)}
-                  placeholder="Search by title or category"
-                  style={{
-                    width: "100%",
-                    padding: "0.6rem 0.7rem",
-                    borderRadius: "8px",
-                    border: "1px solid #d1d5db",
-                    marginBottom: "0.6rem",
-                  }}
-                />
-                {searching && <p>Searching…</p>}
-                {!searching && filteredTasks.length === 0 ? (
-                  <p style={{ color: "#6b7280" }}>No tasks found.</p>
-                ) : (
-                  filteredTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "0.75rem",
-                        padding: "0.6rem 0.8rem",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "10px",
-                        marginBottom: "0.6rem",
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{task.title}</div>
-                        <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                          {task.category || "No category"}
-                        </div>
-                      </div>
-                      <Link
-                        to={`/chat/${task.id}/${task.owner_id}`}
-                        style={{
-                          background: BLUE,
-                          color: "#fff",
-                          padding: "0.45rem 0.9rem",
-                          borderRadius: "999px",
-                          textDecoration: "none",
-                          fontWeight: 600,
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        Open chat
-                      </Link>
-                    </div>
-                  ))
-                )}
-              </div>
-            </>
+          {loadingInbox && <p>Loading inbox…</p>}
+          {!loadingInbox && conversations.length === 0 && (
+            <p style={{ color: "#6b7280" }}>No conversations yet.</p>
           )}
+          {!loadingInbox &&
+            conversations.map((conv) => (
+              <Link
+                key={conv.id}
+                to={`/chat/${conv.task_id}/${conv.otherUserId}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.75rem",
+                  padding: "0.6rem 0.8rem",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "10px",
+                  marginBottom: "0.6rem",
+                  textDecoration: "none",
+                  color: "#0f172a",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    {taskTitles[conv.task_id] || "Task"}
+                  </div>
+                  <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                    Last updated{" "}
+                    {conv.last_message_at
+                      ? new Date(conv.last_message_at).toLocaleString()
+                      : "—"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  {conv.unreadCount > 0 && (
+                    <span
+                      style={{
+                        background: VIOLET,
+                        color: "#fff",
+                        padding: "0.2rem 0.5rem",
+                        borderRadius: "999px",
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {conv.unreadCount}
+                    </span>
+                  )}
+                  <span style={{ color: "#94a3b8" }}>&rarr;</span>
+                </div>
+              </Link>
+            ))}
         </>
       )}
 
-      {me && !needsPicker && (
+      {me && isThread && (
         <>
+          {loadingThread && <p>Loading chat…</p>}
           <div
             ref={listRef}
             style={{
@@ -459,7 +364,7 @@ export default function Chat() {
                   }}
                   title={new Date(msg.created_at).toLocaleString()}
                 >
-                  {msg.content}
+                  {msg.body}
                 </div>
               </div>
             ))}
