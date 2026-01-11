@@ -28,12 +28,19 @@ export default function TaskDetails() {
   const [owner, setOwner] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [chatReceiverId, setChatReceiverId] = useState(null);
+  const [chatHint, setChatHint] = useState("");
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         setErr("");
+
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id || null;
+        setCurrentUserId(userId);
 
         // 1️⃣ Prendo il task
         const { data: taskData, error: taskError } = await supabase
@@ -50,6 +57,31 @@ export default function TaskDetails() {
         }
 
         setTask(taskData);
+
+        if (userId && taskData.owner_id === userId) {
+          const { data: assignmentData, error: assignmentError } = await supabase
+            .from("task_assignments")
+            .select("user_id")
+            .eq("task_id", taskData.id)
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          if (assignmentError) {
+            console.warn("Assignment error:", assignmentError);
+          }
+
+          if (assignmentData?.user_id) {
+            setChatReceiverId(assignmentData.user_id);
+            setChatHint("");
+          } else {
+            setChatReceiverId(null);
+            setChatHint("No helper assigned yet.");
+          }
+        } else {
+          setChatReceiverId(taskData.owner_id || null);
+          setChatHint("");
+        }
 
         // 2️⃣ Prendo il profilo owner (se esiste tabella profiles)
         const { data: profileData, error: profileError } = await supabase
@@ -77,8 +109,8 @@ export default function TaskDetails() {
   }, [id]);
 
   const handleChat = () => {
-    if (!task) return;
-    navigate(`/chat/${task.id}/${task.owner_id}`);
+    if (!task || !chatReceiverId) return;
+    navigate(`/chat/${task.id}/${chatReceiverId}`);
   };
 
   if (loading) {
@@ -162,9 +194,24 @@ export default function TaskDetails() {
             <h3 style={{ marginTop: 0, marginBottom: "0.5rem" }}>
               Interested in this task?
             </h3>
-            <button style={styles.chatBtn} onClick={handleChat}>
-              Chat with {owner?.full_name || "this person"}
+            <button
+              style={{
+                ...styles.chatBtn,
+                opacity: chatReceiverId ? 1 : 0.6,
+                cursor: chatReceiverId ? "pointer" : "not-allowed",
+              }}
+              onClick={handleChat}
+              disabled={!chatReceiverId}
+            >
+              {currentUserId && task.owner_id === currentUserId
+                ? "Chat with helper"
+                : `Chat with ${owner?.full_name || "this person"}`}
             </button>
+            {chatHint && (
+              <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.8rem", color: "#6b7280" }}>
+                {chatHint}
+              </p>
+            )}
             <p style={styles.sideNote}>
               Send a message to discuss details, timing and payment.
             </p>

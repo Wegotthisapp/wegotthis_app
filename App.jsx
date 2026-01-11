@@ -32,6 +32,7 @@ export default function App() {
         <Route path="/courses" element={<Courses />} />
 
         {/* Chat per task specifico */}
+        <Route path="/chat" element={<Chat />} />
         <Route path="/chat/:taskId/:receiverId" element={<Chat />} />
 
         {/* Auth */}
