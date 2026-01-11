@@ -118,13 +118,16 @@ export default function Chat() {
     setLoadingList(false);
   };
 
-  // 2) fetch messages for this task
+  // 2) fetch messages for this task + 1:1 pair
   const fetchMessages = async () => {
-    if (!safeTaskId) return;
+    if (!safeTaskId || !safeReceiverId || !me?.id) return;
     const { data, error } = await supabase
       .from("messages")
       .select("*")
       .eq("task_id", safeTaskId)
+      .or(
+        `and(sender_id.eq.${me.id},receiver_id.eq.${safeReceiverId}),and(sender_id.eq.${safeReceiverId},receiver_id.eq.${me.id})`
+      )
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -138,12 +141,12 @@ export default function Chat() {
   };
 
   useEffect(() => {
-    if (!safeTaskId) return;
+    if (!safeTaskId || !safeReceiverId || !me?.id) return;
     fetchMessages();
 
     // 3) realtime: subscribe to new messages
     const channel = supabase
-      .channel(`messages:task:${safeTaskId}`)
+      .channel(`messages:task:${safeTaskId}:${me.id}:${safeReceiverId}`)
       .on(
         "postgres_changes",
         {
@@ -153,7 +156,12 @@ export default function Chat() {
           filter: `task_id=eq.${safeTaskId}`,
         },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new]);
+          const msg = payload.new;
+          const inPair =
+            (msg.sender_id === me.id && msg.receiver_id === safeReceiverId) ||
+            (msg.sender_id === safeReceiverId && msg.receiver_id === me.id);
+          if (!inPair) return;
+          setMessages((prev) => [...prev, msg]);
           if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
         }
       )
@@ -162,7 +170,7 @@ export default function Chat() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [safeTaskId]);
+  }, [safeTaskId, safeReceiverId, me?.id]);
 
   useEffect(() => {
     if (!me || safeTaskId) return;

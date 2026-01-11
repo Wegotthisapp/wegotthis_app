@@ -34,11 +34,9 @@ export default function TaskCard({ task, isOwn }) {
 
   const handleChatClick = (event) => {
     event.stopPropagation();
-    if (!task.owner_id || task.owner_id === "null" || task.owner_id === "undefined") {
-      navigate("/chat");
-      return;
-    }
-    navigate(`/chat/${task.id}/${task.owner_id}`);
+    const ownerId = task.user_id || task.owner_id;
+    if (!ownerId || ownerId === "null" || ownerId === "undefined") return;
+    navigate(`/chat/${task.id}/${ownerId}`);
   };
 
   const priceLabel = formatPrice(task.price_min, task.price_max, task.currency);
