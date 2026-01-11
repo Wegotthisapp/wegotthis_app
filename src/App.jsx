@@ -1,16 +1,19 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
+
 import Home from "./pages/Home";
+import Tasks from "./pages/Tasks";
 import AddTask from "./pages/AddTask";
 import Profile from "./pages/Profile";
 import Social from "./pages/Social";
 import Courses from "./pages/Courses";
 import Chat from "./pages/Chat";
 import Signup from "./pages/Signup";
-import Tasks from "./pages/Tasks";
-import MapPage from "./pages/Map";
 import Login from "./pages/Login";
-import TaskDetails from "./pages/TaskDetails"; // 👈 NEW IMPORT
+import MapPage from "./pages/Map";
+import TaskDetails from "./pages/TaskDetails";
+import Auth from "./pages/Auth";
+import HelperSetup from "./pages/HelperSetup";
 
 export default function App() {
   return (
@@ -27,14 +30,10 @@ export default function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         <Route path="/map" element={<MapPage />} />
-
-        {/* 👇 NUOVA PAGINA DETTAGLI TASK */}
         <Route path="/task/:id" element={<TaskDetails />} />
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/helper-setup" element={<HelperSetup />} />
       </Routes>
     </BrowserRouter>
   );
 }
-import HelperSetup from "./pages/HelperSetup"; // in alto
-
-// dentro <Routes>:
-<Route path="/helper-setup" element={<HelperSetup />} />

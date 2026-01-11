@@ -11,7 +11,7 @@ export default function Profile() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [helperCategories, setHelperCategories] = useState([]);
   const [helperTools, setHelperTools] = useState([]);
-  const [maxRadiusKm, setMaxRadiusKm] = useState(5);
+  const [maxRadiusKm, setMaxRadiusKm] = useState(5); // UI state; DB column will be wired later
   const [availabilityText, setAvailabilityText] = useState("{}");
   const [isProfessional, setIsProfessional] = useState(false);
 
@@ -39,10 +39,11 @@ export default function Profile() {
       setUserId(user.id);
       setUserEmail(user.email || "");
 
+      // Do NOT select max_distance_km for now to avoid schema errors
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "full_name, avatar_url, helper_categories, helper_tools, max_radius_km, availability, is_professional, rating_as_helper, num_helper_reviews"
+          "full_name, avatar_url, helper_categories, helper_tools, availability, is_professional, rating_as_helper, num_helper_reviews"
         )
         .eq("id", user.id)
         .maybeSingle();
@@ -54,7 +55,9 @@ export default function Profile() {
         setAvatarUrl(data.avatar_url || "");
         setHelperCategories(data.helper_categories || []);
         setHelperTools(data.helper_tools || []);
-        if (data.max_radius_km != null) setMaxRadiusKm(data.max_radius_km);
+        // Try to read either max_distance_km or max_radius_km if present
+        const maybeMax = data.max_distance_km ?? data.max_radius_km ?? null;
+        if (maybeMax != null) setMaxRadiusKm(Number(maybeMax));
         setAvailabilityText(
           data.availability ? JSON.stringify(data.availability, null, 2) : "{}"
         );
@@ -63,23 +66,21 @@ export default function Profile() {
         setNumReviews(data.num_helper_reviews || 0);
       }
 
-      // fetch related tasks even if profile row is missing but user exists
       await fetchTaskLists(user.id);
-
       setLoading(false);
     };
 
     fetchProfile();
   }, []);
 
-  const fetchTaskLists = async (userId) => {
+  const fetchTaskLists = async (uid) => {
     setTasksError("");
 
     // Tasks created by the user
     const { data: created, error: createdErr } = await supabase
       .from("tasks")
       .select("id, title, category, created_at, status")
-      .eq("owner_id", userId)
+      .eq("owner_id", uid)
       .order("created_at", { ascending: false });
 
     if (createdErr) {
@@ -89,15 +90,18 @@ export default function Profile() {
       setCreatedTasks(created || []);
     }
 
-    // Tasks the user helped with (from task_assignments)
+    // Tasks the user helped with — alias created_at -> assigned_at, and use user_id
     const { data: helped, error: helpedErr } = await supabase
       .from("task_assignments")
-      .select("assigned_at, tasks:task_id(id, title, category, created_at, status)")
-      .eq("helper_id", userId)
-      .order("assigned_at", { ascending: false });
+      .select(`
+        id,
+        assigned_at:created_at,
+        tasks:task_id ( id, title, category, created_at, status )
+      `)
+      .eq("user_id", uid)
+      .order("created_at", { ascending: false });
 
     if (helpedErr) {
-      // don't overwrite created tasks if only helped fails
       setTasksError((prev) =>
         prev ? `${prev} | ${helpedErr.message}` : helpedErr.message
       );
@@ -135,27 +139,25 @@ export default function Profile() {
       try {
         parsedAvailability = JSON.parse(availabilityText);
       } catch (err) {
-        setError("Availability must be valid JSON (e.g. {\"mon\":[\"18-21\"]}).");
+        setError('Availability must be valid JSON (e.g. {"mon":["18-21"]}).');
         setSaving(false);
         return;
       }
     }
 
+    // Build updates WITHOUT updated_at
     const updates = {
       id: user.id,
       full_name: fullName,
       avatar_url: avatarUrl || null,
       helper_categories: helperCategories,
       helper_tools: helperTools,
-      max_radius_km: maxRadiusKm ? Number(maxRadiusKm) : null,
+      // When DB column is ready, add: max_distance_km: Number(maxRadiusKm)
       availability: parsedAvailability,
       is_professional: isProfessional,
-      updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase
-      .from("profiles")
-      .upsert(updates, { onConflict: "id" });
+    const { error } = await supabase.from("profiles").upsert(updates, { onConflict: "id" });
 
     if (error) {
       setError(error.message);

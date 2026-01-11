@@ -3,62 +3,43 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
 export default function Login() {
-  const navigate = useNavigate();
+  const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-  const handleSubmit = async (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
-    setErrorMsg("");
+    setErr(""); setLoading(true);
 
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+      email, password
     });
+    if (error) { setErr(error.message); setLoading(false); return; }
 
-    if (error) {
-      setErrorMsg(error.message || "Login failed");
-      return;
-    }
-
-    // if login ok → go to home or profile
-    navigate("/profile"); // or "/" if you prefer
+    // on success, go to profile (or wherever you prefer)
+    if (data.session?.user) nav("/profile");
+    setLoading(false);
   };
 
   return (
     <div className="auth-container">
-      <h1>Login</h1>
-
-      {errorMsg && <p className="error-message">{errorMsg}</p>}
-
-      <form onSubmit={handleSubmit} className="auth-form">
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-          />
-        </label>
-
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Your password"
-            required
-          />
-        </label>
-
-        <button type="submit" className="login-btn">
-          Login
+      <h2>Log in</h2>
+      <form onSubmit={onSubmit}>
+        <input
+          type="email" placeholder="Email"
+          value={email} onChange={(e)=>setEmail(e.target.value)} required
+        />
+        <input
+          type="password" placeholder="Password"
+          value={password} onChange={(e)=>setPassword(e.target.value)} required
+        />
+        <button disabled={loading} type="submit">
+          {loading ? "Logging in..." : "Log in"}
         </button>
       </form>
+      {err && <p style={{color:"red"}}>{err}</p>}
     </div>
   );
 }
