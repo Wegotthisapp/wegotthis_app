@@ -62,7 +62,10 @@ export default function MapPage() {
 
       const { data, error } = await supabase
         .from("tasks")
-        .select("*")
+        .select(
+          "id, user_id, title, description, category, price_min, price_max, currency, location_lat, location_lng, created_at, status"
+        )
+        .eq("status", "open")
         .not("location_lat", "is", null)
         .not("location_lng", "is", null);
 

@@ -1,9 +1,9 @@
 import { Link } from "react-router-dom";
 
-export default function ChatButton({ taskId, receiverId }) {
+export default function ChatButton({ taskId, otherUserId }) {
   return (
     <Link
-      to={`/chat/${taskId}/${receiverId}`}
+      to={`/chat/resolve/${taskId}/${otherUserId}`}
       style={{
         display: "inline-block",
         background: "#007BFF",

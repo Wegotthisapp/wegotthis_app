@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 function formatDate(dateString) {
@@ -27,16 +28,26 @@ function formatPrice(price_min, price_max, currency = "EUR") {
 
 export default function TaskCard({ task, isOwn }) {
   const navigate = useNavigate();
+  const warnedMissingOwner = useRef(false);
+  const isOpen = task?.status ? task.status === "open" : true;
+
+  useEffect(() => {
+    if (!task?.user_id && !warnedMissingOwner.current) {
+      console.warn("Task is missing user_id, chat button disabled.", task);
+      warnedMissingOwner.current = true;
+    }
+  }, [task]);
 
   const handleClick = () => {
+    if (!isOpen) return;
     navigate(`/task/${task.id}`);
   };
 
   const handleChatClick = (event) => {
     event.stopPropagation();
-    const ownerId = task.user_id || task.owner_id;
+    const ownerId = task.user_id;
     if (!ownerId || ownerId === "null" || ownerId === "undefined") return;
-    navigate(`/chat/${task.id}/${ownerId}`);
+    navigate(`/chat/resolve/${task.id}/${ownerId}`);
   };
 
   const priceLabel = formatPrice(task.price_min, task.price_max, task.currency);
@@ -46,7 +57,14 @@ export default function TaskCard({ task, isOwn }) {
     : "";
 
   return (
-    <div onClick={handleClick} style={styles.card}>
+    <div
+      onClick={handleClick}
+      style={{
+        ...styles.card,
+        opacity: isOpen ? 1 : 0.6,
+        cursor: isOpen ? "pointer" : "not-allowed",
+      }}
+    >
       <div style={styles.topRow}>
         <div style={styles.leftTop}>
           {task.category && (
@@ -71,6 +89,11 @@ export default function TaskCard({ task, isOwn }) {
           <span style={styles.price}>{priceLabel}</span>
           <span style={styles.meta}>{distanceLabel}</span>
           {postedLabel && <span style={styles.meta}>{postedLabel}</span>}
+          {!isOpen && (
+            <span style={styles.statusTag}>
+              {task.status || "unavailable"}
+            </span>
+          )}
         </div>
         <div style={styles.actionCol}>
           {!isOwn && (
@@ -78,8 +101,11 @@ export default function TaskCard({ task, isOwn }) {
               type="button"
               style={{
                 ...styles.chatBtn,
+                opacity: task.user_id && isOpen ? 1 : 0.6,
+                cursor: task.user_id && isOpen ? "pointer" : "not-allowed",
               }}
               onClick={handleChatClick}
+              disabled={!task.user_id || !isOpen}
             >
               Chat with this person
             </button>
@@ -176,6 +202,16 @@ const styles = {
   meta: {
     fontSize: "0.75rem",
     color: "#777",
+  },
+  statusTag: {
+    alignSelf: "flex-start",
+    fontSize: "0.7rem",
+    color: "#475569",
+    background: "#e2e8f0",
+    padding: "0.15rem 0.45rem",
+    borderRadius: "999px",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
   },
   arrow: {
     fontSize: "1.2rem",

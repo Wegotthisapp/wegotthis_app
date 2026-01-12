@@ -165,7 +165,7 @@ export default function AddTask() {
     const locationLngNumber = locationLng !== "" ? Number(locationLng) : null;
 
     const task = {
-      owner_id: user.id,
+      user_id: user.id,
       title,
       description,
       category,

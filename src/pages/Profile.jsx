@@ -21,6 +21,8 @@ export default function Profile() {
   const [createdTasks, setCreatedTasks] = useState([]);
   const [helpedTasks, setHelpedTasks] = useState([]);
   const [tasksError, setTasksError] = useState("");
+  const [taskActionError, setTaskActionError] = useState("");
+  const [taskActionNotice, setTaskActionNotice] = useState("");
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState("");
 
@@ -79,8 +81,8 @@ export default function Profile() {
     // Tasks created by the user
     const { data: created, error: createdErr } = await supabase
       .from("tasks")
-      .select("id, title, category, created_at, status")
-      .eq("owner_id", uid)
+      .select("id, user_id, title, category, created_at, status, assigned_helper_id")
+      .eq("user_id", uid)
       .order("created_at", { ascending: false });
 
     if (createdErr) {
@@ -96,7 +98,7 @@ export default function Profile() {
       .select(`
         id,
         assigned_at:created_at,
-        tasks:task_id ( id, title, category, created_at, status )
+        tasks:task_id ( id, user_id, title, category, created_at, status, assigned_helper_id )
       `)
       .eq("user_id", uid)
       .order("created_at", { ascending: false });
@@ -115,6 +117,91 @@ export default function Profile() {
         .filter((t) => t.id);
       setHelpedTasks(flattened);
     }
+  };
+
+  const refreshTasks = async () => {
+    if (!userId) return;
+    await fetchTaskLists(userId);
+  };
+
+  const handleTaskDelete = async (taskId) => {
+    if (!userId) return;
+    setTaskActionError("");
+    setTaskActionNotice("");
+
+    const { error: offersError } = await supabase
+      .from("task_offers")
+      .delete()
+      .eq("task_id", taskId);
+
+    if (offersError) {
+      setTaskActionError(offersError.message);
+      return;
+    }
+
+    const { error: messagesError } = await supabase
+      .from("messages")
+      .delete()
+      .eq("task_id", taskId);
+
+    if (messagesError) {
+      setTaskActionError(messagesError.message);
+      return;
+    }
+
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", taskId)
+      .eq("user_id", userId);
+
+    if (taskError) {
+      setTaskActionError(taskError.message);
+      return;
+    }
+
+    setTaskActionNotice("Task deleted.");
+    refreshTasks();
+  };
+
+  const handleTaskCancel = async (taskId) => {
+    if (!userId) return;
+    setTaskActionError("");
+    setTaskActionNotice("");
+
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+      .eq("id", taskId)
+      .eq("user_id", userId);
+
+    if (error) {
+      setTaskActionError(error.message);
+      return;
+    }
+
+    setTaskActionNotice("Task cancelled.");
+    refreshTasks();
+  };
+
+  const handleTaskDone = async (taskId) => {
+    if (!userId) return;
+    setTaskActionError("");
+    setTaskActionNotice("");
+
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "done", done_at: new Date().toISOString() })
+      .eq("id", taskId)
+      .eq("user_id", userId);
+
+    if (error) {
+      setTaskActionError(error.message);
+      return;
+    }
+
+    setTaskActionNotice("Task marked as done.");
+    refreshTasks();
   };
 
   const toggleChip = (value, listSetter, list) => {
@@ -170,6 +257,19 @@ export default function Profile() {
 
   if (loading) return <p>Loading profile…</p>;
   if (error) return <p style={{ color: "red" }}>{error}</p>;
+
+  const openTasks = (createdTasks || []).filter(
+    (task) => (task.status || "open") === "open"
+  );
+  const assignedTasks = (createdTasks || []).filter(
+    (task) => task.status === "assigned"
+  );
+  const doneTasks = (createdTasks || []).filter(
+    (task) => task.status === "done"
+  );
+  const cancelledTasks = (createdTasks || []).filter(
+    (task) => task.status === "cancelled"
+  );
 
   return (
     <div style={{ maxWidth: "700px", margin: "2rem auto", padding: "1rem" }}>
@@ -304,11 +404,41 @@ export default function Profile() {
         </button>
       </form>
 
-      <TasksSection
-        title="Tasks you created"
+      <OwnerTasksSection
+        title="Open tasks"
         color="#7c3aed"
-        tasks={createdTasks}
-        emptyText="You haven't created any tasks yet."
+        tasks={openTasks}
+        emptyText="You have no open tasks."
+        onDelete={handleTaskDelete}
+        onCancel={handleTaskCancel}
+        onDone={handleTaskDone}
+      />
+      <OwnerTasksSection
+        title="Assigned tasks"
+        color="#2563eb"
+        tasks={assignedTasks}
+        emptyText="No tasks are assigned yet."
+        onDelete={handleTaskDelete}
+        onCancel={handleTaskCancel}
+        onDone={handleTaskDone}
+      />
+      <OwnerTasksSection
+        title="Done tasks"
+        color="#16a34a"
+        tasks={doneTasks}
+        emptyText="No tasks are marked done yet."
+        onDelete={handleTaskDelete}
+        onCancel={handleTaskCancel}
+        onDone={handleTaskDone}
+      />
+      <OwnerTasksSection
+        title="Cancelled tasks"
+        color="#f97316"
+        tasks={cancelledTasks}
+        emptyText="No tasks are cancelled."
+        onDelete={handleTaskDelete}
+        onCancel={handleTaskCancel}
+        onDone={handleTaskDone}
       />
 
       <TasksSection
@@ -318,7 +448,100 @@ export default function Profile() {
         emptyText="You haven't been assigned to tasks yet."
       />
 
+      {(taskActionError || taskActionNotice) && (
+        <p style={{ color: taskActionError ? "red" : "#0f766e" }}>
+          {taskActionError || taskActionNotice}
+        </p>
+      )}
       {tasksError && <p style={{ color: "red" }}>{tasksError}</p>}
+    </div>
+  );
+}
+
+function OwnerTasksSection({
+  title,
+  color,
+  tasks,
+  emptyText,
+  onDelete,
+  onCancel,
+  onDone,
+}) {
+  return (
+    <div style={{ marginTop: "2rem" }}>
+      <h3 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <span
+          style={{
+            display: "inline-block",
+            width: "12px",
+            height: "12px",
+            borderRadius: "999px",
+            backgroundColor: color,
+          }}
+        />
+        {title}
+      </h3>
+      {(!tasks || tasks.length === 0) && <p style={{ color: "#475569" }}>{emptyText}</p>}
+      {tasks &&
+        tasks.map((task) => (
+          <div key={task.id} style={{ ...taskCard, borderColor: color }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <div>
+                <p style={{ margin: "0 0 0.2rem 0", fontWeight: 600 }}>{task.title}</p>
+                <p style={{ margin: 0, color: "#475569" }}>
+                  {task.category || "No category"} ·{" "}
+                  {task.created_at
+                    ? new Date(task.created_at).toLocaleDateString()
+                    : "Date unknown"}
+                </p>
+                {task.assigned_helper_id && (
+                  <p style={{ margin: "0.2rem 0 0 0", color: "#64748b" }}>
+                    Assigned to {String(task.assigned_helper_id).slice(0, 8)}…
+                  </p>
+                )}
+              </div>
+              <span
+                style={{
+                  backgroundColor: color,
+                  color: "#fff",
+                  padding: "0.2rem 0.5rem",
+                  borderRadius: "999px",
+                  fontSize: "0.8rem",
+                  alignSelf: "flex-start",
+                  textTransform: "capitalize",
+                }}
+              >
+                {task.status || "open"}
+              </span>
+            </div>
+            <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem" }}>
+              {["open", "assigned"].includes(task.status || "open") && (
+                <button
+                  style={smallButton}
+                  onClick={() => onDone(task.id)}
+                >
+                  Mark done
+                </button>
+              )}
+              {task.status !== "cancelled" && task.status !== "done" && (
+                <button
+                  style={smallButton}
+                  onClick={() => onCancel(task.id)}
+                >
+                  Cancel
+                </button>
+              )}
+              {["open", "cancelled"].includes(task.status || "open") && (
+                <button
+                  style={smallDangerButton}
+                  onClick={() => onDelete(task.id)}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
     </div>
   );
 }
@@ -417,6 +640,26 @@ const saveButton = {
   backgroundColor: "#1d4ed8",
   color: "#fff",
   fontWeight: 600,
+  cursor: "pointer",
+};
+
+const smallButton = {
+  border: "1px solid #c7d2fe",
+  background: "#eef2ff",
+  color: "#3730a3",
+  padding: "0.3rem 0.6rem",
+  borderRadius: "999px",
+  fontSize: "0.75rem",
+  cursor: "pointer",
+};
+
+const smallDangerButton = {
+  border: "1px solid #fecaca",
+  background: "#fee2e2",
+  color: "#b91c1c",
+  padding: "0.3rem 0.6rem",
+  borderRadius: "999px",
+  fontSize: "0.75rem",
   cursor: "pointer",
 };
 

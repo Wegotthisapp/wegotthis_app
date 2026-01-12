@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
@@ -31,6 +31,14 @@ export default function TaskDetails() {
   const [currentUserId, setCurrentUserId] = useState(null);
   const [chatReceiverId, setChatReceiverId] = useState(null);
   const [chatHint, setChatHint] = useState("");
+  const warnedMissingOwnerRef = useRef(false);
+  const [offers, setOffers] = useState([]);
+  const [offerMessage, setOfferMessage] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const [notAvailable, setNotAvailable] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -45,7 +53,9 @@ export default function TaskDetails() {
         // 1️⃣ Prendo il task
         const { data: taskData, error: taskError } = await supabase
           .from("tasks")
-          .select("*")
+          .select(
+            "id, user_id, title, description, category, price_min, price_max, currency, max_distance_km, tools_needed, created_at, location, status, assigned_helper_id, assigned_at, done_at, cancelled_at"
+          )
           .eq("id", id)
           .single();
 
@@ -56,9 +66,25 @@ export default function TaskDetails() {
           return;
         }
 
+        const taskOwnerId = taskData.user_id || null;
+        const isOwner = userId && taskOwnerId === userId;
+        const isAssignedHelper =
+          userId && taskData.assigned_helper_id === userId;
+
         setTask(taskData);
 
-        if (userId && taskData.owner_id === userId) {
+        if (!taskOwnerId && !warnedMissingOwnerRef.current) {
+          console.warn("Task is missing user_id, chat button disabled.", taskData);
+          warnedMissingOwnerRef.current = true;
+        }
+
+        if (taskData.status !== "open" && !isOwner && !isAssignedHelper) {
+          setNotAvailable(true);
+          setLoading(false);
+          return;
+        }
+
+        if (isOwner) {
           const { data: assignmentData, error: assignmentError } = await supabase
             .from("task_assignments")
             .select("user_id")
@@ -71,15 +97,16 @@ export default function TaskDetails() {
             console.warn("Assignment error:", assignmentError);
           }
 
-          if (assignmentData?.user_id) {
-            setChatReceiverId(assignmentData.user_id);
+          const helperId = taskData.assigned_helper_id || assignmentData?.user_id || null;
+          if (helperId) {
+            setChatReceiverId(helperId);
             setChatHint("");
           } else {
             setChatReceiverId(null);
             setChatHint("No helper assigned yet.");
           }
         } else {
-          setChatReceiverId(taskData.owner_id || null);
+          setChatReceiverId(taskOwnerId);
           setChatHint("");
         }
 
@@ -89,7 +116,7 @@ export default function TaskDetails() {
           .select(
             "id, full_name, avatar_url, is_professional, rating_as_helper, num_helper_reviews"
           )
-          .eq("id", taskData.owner_id)
+          .eq("id", taskOwnerId)
           .maybeSingle(); // 👈 più safe di single()
 
         if (profileError) {
@@ -97,6 +124,21 @@ export default function TaskDetails() {
         }
 
         setOwner(profileData || null);
+
+        if (isOwner) {
+          const { data: offerData, error: offerError } = await supabase
+            .from("task_offers")
+            .select("id, helper_id, message, created_at, status")
+            .eq("task_id", taskData.id)
+            .order("created_at", { ascending: false });
+
+          if (offerError) {
+            console.warn("Offer error:", offerError);
+          }
+
+          setOffers(offerData || []);
+        }
+
         setLoading(false);
       } catch (e) {
         console.error("Unexpected error in TaskDetails:", e);
@@ -110,8 +152,255 @@ export default function TaskDetails() {
 
   const handleChat = () => {
     if (!task || !chatReceiverId) return;
-    navigate(`/chat/${task.id}/${chatReceiverId}`);
+    navigate(`/chat/resolve/${task.id}/${chatReceiverId}`);
   };
+
+  const isOwner = currentUserId && task?.user_id === currentUserId;
+  const isAssignedHelper =
+    currentUserId && task?.assigned_helper_id === currentUserId;
+
+  const handleDelete = async () => {
+    if (!task || !isOwner) return;
+    if (!["open", "cancelled"].includes(task.status || "open")) {
+      setActionError("Only open or cancelled tasks can be deleted.");
+      return;
+    }
+    setActionLoading(true);
+    setActionError("");
+    setActionNotice("");
+
+    const taskId = task.id;
+
+    const { error: offersError } = await supabase
+      .from("task_offers")
+      .delete()
+      .eq("task_id", taskId);
+
+    if (offersError) {
+      setActionError(offersError.message);
+      setActionLoading(false);
+      return;
+    }
+
+    const { data: convoRows, error: convoError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("task_id", taskId);
+
+    if (convoError) {
+      setActionError(convoError.message);
+      setActionLoading(false);
+      return;
+    }
+
+    const convoIds = (convoRows || []).map((row) => row.id);
+    if (convoIds.length > 0) {
+      const { error: messagesError } = await supabase
+        .from("messages")
+        .delete()
+        .in("conversation_id", convoIds);
+
+      if (messagesError) {
+        setActionError(messagesError.message);
+        setActionLoading(false);
+        return;
+      }
+
+      const { error: convoDeleteError } = await supabase
+        .from("conversations")
+        .delete()
+        .in("id", convoIds);
+
+      if (convoDeleteError) {
+        setActionError(convoDeleteError.message);
+        setActionLoading(false);
+        return;
+      }
+    }
+
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", taskId)
+      .eq("user_id", currentUserId);
+
+    if (taskError) {
+      setActionError(taskError.message);
+      setActionLoading(false);
+      return;
+    }
+
+    setDeleted(true);
+    setActionLoading(false);
+  };
+
+  const handleCancel = async () => {
+    if (!task || !isOwner) return;
+    if (task.status === "done" || task.status === "cancelled") return;
+    setActionLoading(true);
+    setActionError("");
+    setActionNotice("");
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+      .eq("id", task.id)
+      .eq("user_id", currentUserId)
+      .select()
+      .single();
+
+    if (error) {
+      setActionError(error.message);
+    } else {
+      setTask(data);
+      setActionNotice("Task cancelled.");
+    }
+
+    setActionLoading(false);
+  };
+
+  const handleMarkDone = async () => {
+    if (!task || !isOwner) return;
+    if (task.status === "done" || task.status === "cancelled") return;
+    setActionLoading(true);
+    setActionError("");
+    setActionNotice("");
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .update({ status: "done", done_at: new Date().toISOString() })
+      .eq("id", task.id)
+      .eq("user_id", currentUserId)
+      .select()
+      .single();
+
+    if (error) {
+      setActionError(error.message);
+    } else {
+      setTask(data);
+      setActionNotice("Task marked as done.");
+    }
+
+    setActionLoading(false);
+  };
+
+  const handleMakeOffer = async () => {
+    if (!task || isOwner || task.status !== "open") return;
+    if (!currentUserId) {
+      setActionError("Please log in to make an offer.");
+      return;
+    }
+    if (!offerMessage.trim()) {
+      setActionError("Add a message to your offer.");
+      return;
+    }
+    setActionLoading(true);
+    setActionError("");
+    setActionNotice("");
+
+    const { error } = await supabase.from("task_offers").insert([
+      {
+        task_id: task.id,
+        helper_id: currentUserId,
+        message: offerMessage.trim(),
+        status: "pending",
+      },
+    ]);
+
+    if (error) {
+      setActionError(error.message);
+    } else {
+      setOfferMessage("");
+      setActionNotice("Offer sent.");
+    }
+
+    setActionLoading(false);
+  };
+
+  const handleAcceptOffer = async (offer) => {
+    if (!task || !isOwner || task.status !== "open") return;
+    setActionLoading(true);
+    setActionError("");
+    setActionNotice("");
+
+    const now = new Date().toISOString();
+    const { data: updatedTask, error: taskError } = await supabase
+      .from("tasks")
+      .update({
+        status: "assigned",
+        assigned_helper_id: offer.helper_id,
+        assigned_at: now,
+      })
+      .eq("id", task.id)
+      .eq("user_id", currentUserId)
+      .select()
+      .single();
+
+    if (taskError) {
+      setActionError(taskError.message);
+      setActionLoading(false);
+      return;
+    }
+
+    const { error: acceptError } = await supabase
+      .from("task_offers")
+      .update({ status: "accepted" })
+      .eq("id", offer.id)
+      .eq("task_id", task.id);
+
+    if (acceptError) {
+      setActionError(acceptError.message);
+      setActionLoading(false);
+      return;
+    }
+
+    const { error: rejectError } = await supabase
+      .from("task_offers")
+      .update({ status: "rejected" })
+      .eq("task_id", task.id)
+      .eq("status", "pending")
+      .neq("id", offer.id);
+
+    if (rejectError) {
+      setActionError(rejectError.message);
+      setActionLoading(false);
+      return;
+    }
+
+    setTask(updatedTask);
+    setOffers((prev) =>
+      prev.map((item) => {
+        if (item.id === offer.id) return { ...item, status: "accepted" };
+        if (item.status === "pending") return { ...item, status: "rejected" };
+        return item;
+      })
+    );
+    setChatReceiverId(offer.helper_id);
+    setActionNotice("Helper assigned.");
+    setActionLoading(false);
+  };
+
+  if (deleted) {
+    return (
+      <div style={styles.page}>
+        <p>This task was deleted.</p>
+        <button style={styles.backBtn} onClick={() => navigate(-1)}>
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
+  if (notAvailable) {
+    return (
+      <div style={styles.page}>
+        <p>This task is no longer available.</p>
+        <button style={styles.backBtn} onClick={() => navigate(-1)}>
+          ← Back
+        </button>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -155,7 +444,12 @@ export default function TaskDetails() {
       <div style={styles.layout}>
         {/* Colonna sinistra: info task */}
         <div style={styles.main}>
-          <h1 style={styles.title}>{task.title}</h1>
+          <div style={styles.titleRow}>
+            <h1 style={styles.title}>{task.title}</h1>
+            {task.status && (
+              <span style={styles.statusBadge}>{task.status}</span>
+            )}
+          </div>
 
           <div style={styles.subrow}>
             {task.category && (
@@ -194,23 +488,128 @@ export default function TaskDetails() {
             <h3 style={{ marginTop: 0, marginBottom: "0.5rem" }}>
               Interested in this task?
             </h3>
-            <button
-              style={{
-                ...styles.chatBtn,
-                opacity: chatReceiverId ? 1 : 0.6,
-                cursor: chatReceiverId ? "pointer" : "not-allowed",
-              }}
-              onClick={handleChat}
-              disabled={!chatReceiverId}
-            >
-              {currentUserId && task.owner_id === currentUserId
-                ? "Chat with helper"
-                : `Chat with ${owner?.full_name || "this person"}`}
-            </button>
+            {(!isOwner || chatReceiverId) && (
+              <button
+                style={{
+                  ...styles.chatBtn,
+                  opacity: chatReceiverId ? 1 : 0.6,
+                  cursor: chatReceiverId ? "pointer" : "not-allowed",
+                }}
+                onClick={handleChat}
+                disabled={!chatReceiverId}
+              >
+                {currentUserId && task.user_id === currentUserId
+                  ? "Chat with helper"
+                  : `Chat with ${owner?.full_name || "this person"}`}
+              </button>
+            )}
             {chatHint && (
               <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.8rem", color: "#6b7280" }}>
                 {chatHint}
               </p>
+            )}
+
+            {actionError && (
+              <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.8rem", color: "#dc2626" }}>
+                {actionError}
+              </p>
+            )}
+            {actionNotice && (
+              <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.8rem", color: "#0f766e" }}>
+                {actionNotice}
+              </p>
+            )}
+
+            {!isOwner && task.status === "open" && (
+              <div style={{ marginTop: "0.8rem" }}>
+                <h4 style={{ margin: "0 0 0.4rem 0" }}>Make an offer</h4>
+                <textarea
+                  rows={3}
+                  value={offerMessage}
+                  onChange={(e) => setOfferMessage(e.target.value)}
+                  placeholder="Say hello and share your availability"
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem",
+                    borderRadius: "8px",
+                    border: "1px solid #d1d5db",
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                />
+                <button
+                  style={styles.secondaryBtn}
+                  onClick={handleMakeOffer}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? "Sending…" : "Send offer"}
+                </button>
+              </div>
+            )}
+
+            {isOwner && (
+              <div style={{ marginTop: "0.8rem" }}>
+                <h4 style={{ margin: "0 0 0.4rem 0" }}>Offers</h4>
+                {offers.length === 0 ? (
+                  <p style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                    No offers yet.
+                  </p>
+                ) : (
+                  offers.map((offer) => (
+                    <div key={offer.id} style={styles.offerRow}>
+                      <div>
+                        <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                          Helper {String(offer.helper_id).slice(0, 8)}…
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                          {offer.message}
+                        </div>
+                        <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
+                          {offer.status}
+                        </div>
+                      </div>
+                      {task.status === "open" && offer.status === "pending" && (
+                        <button
+                          style={styles.secondaryBtn}
+                          onClick={() => handleAcceptOffer(offer)}
+                          disabled={actionLoading}
+                        >
+                          Accept
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {isOwner && (
+              <div style={{ marginTop: "0.8rem" }}>
+                <h4 style={{ margin: "0 0 0.4rem 0" }}>Owner actions</h4>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                  <button
+                    style={styles.secondaryBtn}
+                    onClick={handleMarkDone}
+                    disabled={actionLoading || task.status === "done"}
+                  >
+                    Mark done
+                  </button>
+                  <button
+                    style={styles.secondaryBtn}
+                    onClick={handleCancel}
+                    disabled={actionLoading || task.status === "cancelled"}
+                  >
+                    Cancel task
+                  </button>
+                  <button
+                    style={styles.dangerBtn}
+                    onClick={handleDelete}
+                    disabled={actionLoading}
+                  >
+                    Delete task
+                  </button>
+                </div>
+              </div>
             )}
             <p style={styles.sideNote}>
               Send a message to discuss details, timing and payment.
@@ -267,9 +666,23 @@ const styles = {
     padding: "1.25rem 1.4rem",
     boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
   },
+  titleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.75rem",
+    flexWrap: "wrap",
+  },
   title: {
     margin: "0 0 0.4rem 0",
     fontSize: "1.6rem",
+  },
+  statusBadge: {
+    fontSize: "0.75rem",
+    padding: "0.2rem 0.5rem",
+    borderRadius: "999px",
+    backgroundColor: "#e2e8f0",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
   },
   subrow: {
     display: "flex",
@@ -333,6 +746,36 @@ const styles = {
   sideNote: {
     fontSize: "0.8rem",
     color: "#666",
+  },
+  secondaryBtn: {
+    width: "100%",
+    padding: "0.5rem 0.8rem",
+    borderRadius: "999px",
+    border: "1px solid #cbd5f5",
+    background: "#eef2ff",
+    color: "#3730a3",
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  dangerBtn: {
+    width: "100%",
+    padding: "0.5rem 0.8rem",
+    borderRadius: "999px",
+    border: "1px solid #fecaca",
+    background: "#fee2e2",
+    color: "#b91c1c",
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  offerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "0.75rem",
+    alignItems: "center",
+    padding: "0.6rem",
+    border: "1px solid #e2e8f0",
+    borderRadius: "10px",
+    marginBottom: "0.5rem",
   },
   textSmall: {
     fontSize: "0.8rem",

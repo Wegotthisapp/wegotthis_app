@@ -12,7 +12,7 @@ export default function CategoryRow({ title, tasks, userId }) {
           <div key={task.id} style={styles.cardWrapper}>
             <TaskCard
               task={task}
-              isOwn={userId && task.owner_id === userId}
+              isOwn={userId && task.user_id === userId}
             />
           </div>
         ))}

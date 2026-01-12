@@ -21,7 +21,10 @@ export default function Tasks() {
       // fetch tasks
       const { data, error } = await supabase
         .from("tasks")
-        .select("*")
+        .select(
+          "id, user_id, title, description, category, price_min, price_max, currency, max_distance_km, location_lat, location_lng, created_at, status"
+        )
+        .eq("status", "open")
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -60,7 +63,7 @@ export default function Tasks() {
           <TaskCard
             key={task.id}
             task={task}
-            isOwn={userId && task.owner_id === userId}
+            isOwn={userId && task.user_id === userId}
           />
         ))
       )}
