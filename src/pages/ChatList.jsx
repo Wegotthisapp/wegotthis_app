@@ -52,6 +52,25 @@ export default function ChatList() {
           return acc;
         }, {});
 
+        const otherIds = [
+          ...new Set(
+            convs.map((c) => (c.user_a === user.id ? c.user_b : c.user_a))
+          ),
+        ];
+
+        let nameById = {};
+        if (otherIds.length > 0) {
+          const { data: profs } = await supabase
+            .from("profiles")
+            .select("id, full_name")
+            .in("id", otherIds);
+
+          nameById = (profs || []).reduce((acc, p) => {
+            acc[p.id] = p.full_name;
+            return acc;
+          }, {});
+        }
+
         const mapped = convs.map((c) => {
           const otherUserId = c.user_a === user.id ? c.user_b : c.user_a;
           return {
@@ -60,6 +79,7 @@ export default function ChatList() {
             lastMessageAt: c.last_message_at,
             unread: unreadByConv[c.id] || 0,
             highlighted: !!highlightByConv[c.id],
+            otherName: nameById[otherUserId] || null,
           };
         });
 
@@ -94,7 +114,9 @@ export default function ChatList() {
             background: c.highlighted ? "#fff7cc" : "white",
           }}
         >
-          <div style={{ fontWeight: 700 }}>With: {c.otherUserId}</div>
+          <div style={{ fontWeight: 700 }}>
+            With: {c.otherName || c.otherUserId}
+          </div>
           {c.unread > 0 && <div style={{ fontWeight: 600 }}>Unread: {c.unread}</div>}
           {c.highlighted && <div>New task activity</div>}
         </Link>
