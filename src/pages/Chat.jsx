@@ -1,33 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
 const VIOLET = "#7c3aed";
 const BLUE = "#1d4ed8";
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export default function Chat() {
-  const { conversationId, taskId, otherUserId } = useParams();
-  const navigate = useNavigate();
+  const { conversationId } = useParams();
 
   const safeConversationId =
     conversationId && conversationId !== "null" && conversationId !== "undefined"
       ? conversationId
       : null;
-  const safeTaskId =
-    taskId && taskId !== "null" && taskId !== "undefined" ? taskId : null;
-  const safeOtherUserId =
-    otherUserId && otherUserId !== "null" && otherUserId !== "undefined"
-      ? otherUserId
-      : null;
-  const effectiveOtherUserId =
-    safeOtherUserId && UUID_RE.test(safeOtherUserId) ? safeOtherUserId : null;
 
   const [me, setMe] = useState(null);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [activeTaskId, setActiveTaskId] = useState(null);
-  const [activeOtherUserId, setActiveOtherUserId] = useState(null);
+  const [receiverId, setReceiverId] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
   const [taskTitles, setTaskTitles] = useState({});
@@ -39,12 +27,21 @@ export default function Chat() {
   const listRef = useRef(null);
 
   const isThread = Boolean(safeConversationId);
-  const isTaskStart = Boolean(!safeConversationId && safeTaskId && effectiveOtherUserId);
 
   const isMine = useMemo(
     () => (msg) => me && msg.sender_id === me.id,
     [me]
   );
+
+  if (String(conversationId).toLowerCase() === "null") {
+    return (
+      <div style={{ maxWidth: "760px", margin: "2rem auto", padding: "1.25rem" }}>
+        <p style={{ color: "#ef4444" }}>
+          Invalid chat URL (conversationId is null)
+        </p>
+      </div>
+    );
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -58,12 +55,6 @@ export default function Chat() {
       mounted = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (safeOtherUserId && !effectiveOtherUserId) {
-      setError("Invalid chat recipient");
-    }
-  }, [safeOtherUserId, effectiveOtherUserId]);
 
   const fetchInbox = async () => {
     if (!me?.id) return;
@@ -158,7 +149,7 @@ export default function Chat() {
     const otherId = convoRow.user_a === me.id ? convoRow.user_b : convoRow.user_a;
     setActiveConversationId(convoRow.id);
     setActiveTaskId(convoRow.task_id);
-    setActiveOtherUserId(otherId);
+    setReceiverId(otherId || null);
 
     const { data: messageRows, error: messagesError } = await supabase
       .from("messages")
@@ -195,33 +186,8 @@ export default function Chat() {
       loadConversationById(safeConversationId);
       return;
     }
-    if (isTaskStart) {
-      const run = async () => {
-        setLoadingThread(true);
-        setError("");
-        const { data, error } = await supabase.rpc("get_or_create_conversation_id", {
-          p_task_id: safeTaskId,
-          p_user1: me.id,
-          p_user2: effectiveOtherUserId,
-        });
-        if (error) {
-          setError(error.message);
-          setLoadingThread(false);
-          return;
-        }
-        const convoId = data?.id || data;
-        if (convoId) {
-          navigate(`/chat/c/${convoId}`);
-        } else {
-          setError("Unable to open conversation");
-        }
-        setLoadingThread(false);
-      };
-      run();
-      return;
-    }
     fetchInbox();
-  }, [me?.id, isThread, isTaskStart, safeConversationId, safeTaskId, effectiveOtherUserId]);
+  }, [me?.id, isThread, safeConversationId]);
 
   useEffect(() => {
     if (!activeConversationId || !me?.id) return;
@@ -260,8 +226,12 @@ export default function Chat() {
       setError("Please log in");
       return;
     }
-    if (!activeConversationId || !activeOtherUserId || !activeTaskId) {
+    if (!activeConversationId) {
       setError("Open a chat first");
+      return;
+    }
+    if (!receiverId) {
+      setError("Cannot send: receiverId not resolved.");
       return;
     }
     if (!newMessage.trim()) return;
@@ -271,7 +241,7 @@ export default function Chat() {
         conversation_id: activeConversationId,
         task_id: activeTaskId,
         sender_id: me.id,
-        receiver_id: activeOtherUserId,
+        receiver_id: receiverId,
         body: newMessage.trim(),
       },
     ]);
@@ -305,7 +275,7 @@ export default function Chat() {
     >
       <h2 style={{ marginTop: 0 }}>{isThread ? "Chat" : "Inbox"}</h2>
 
-      {!isThread && !isTaskStart && (
+      {!isThread && (
         <>
           <p style={{ color: "#475569" }}>
             Your conversations are listed below.
@@ -356,7 +326,7 @@ export default function Chat() {
                     </span>
                   )}
                   <Link
-                    to={`/chat/c/${conv.id}`}
+                    to={`/chat/${conv.id}`}
                     style={{
                       background: BLUE,
                       color: "#fff",
@@ -373,10 +343,6 @@ export default function Chat() {
               </div>
             ))}
         </>
-      )}
-
-      {isTaskStart && (
-        <p style={{ color: "#475569" }}>Loading chat…</p>
       )}
 
       {isThread && (

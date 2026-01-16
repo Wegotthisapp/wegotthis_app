@@ -38,16 +38,9 @@ export default function TaskCard({ task, isOwn }) {
     }
   }, [task]);
 
-  const handleClick = () => {
+  const handleCardNavigate = () => {
     if (!isOpen) return;
     navigate(`/task/${task.id}`);
-  };
-
-  const handleChatClick = (event) => {
-    event.stopPropagation();
-    const ownerId = task.user_id;
-    if (!ownerId || ownerId === "null" || ownerId === "undefined") return;
-    navigate(`/chat/resolve/${task.id}/${ownerId}`);
   };
 
   const priceLabel = formatPrice(task.price_min, task.price_max, task.currency);
@@ -58,7 +51,12 @@ export default function TaskCard({ task, isOwn }) {
 
   return (
     <div
-      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onClick={handleCardNavigate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") handleCardNavigate();
+      }}
       style={{
         ...styles.card,
         opacity: isOpen ? 1 : 0.6,
@@ -104,7 +102,17 @@ export default function TaskCard({ task, isOwn }) {
                 opacity: task.user_id && isOpen ? 1 : 0.6,
                 cursor: task.user_id && isOpen ? "pointer" : "not-allowed",
               }}
-              onClick={handleChatClick}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log("DEBUG task.id:", task.id, "task.user_id:", task.user_id);
+                if (!isOpen) return;
+                const ownerId = task.user_id;
+                if (!ownerId || ownerId === "null" || ownerId === "undefined") {
+                  return;
+                }
+                navigate(`/chat/resolve/${task.id}/${ownerId}`);
+              }}
               disabled={!task.user_id || !isOpen}
             >
               Chat with this person

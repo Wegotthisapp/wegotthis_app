@@ -9,7 +9,7 @@ import Social from "./pages/Social";
 import Courses from "./pages/Courses";
 import ChatList from "./pages/ChatList";
 import ChatResolve from "./pages/ChatResolve";
-import ChatThread from "./pages/ChatThread";
+import Chat from "./pages/Chat";
 import Signup from "./pages/Signup";
 import Login from "./pages/Login";
 import MapPage from "./pages/Map";
@@ -28,10 +28,9 @@ export default function App() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/social" element={<Social />} />
         <Route path="/courses" element={<Courses />} />
+        <Route path="/chat/resolve/:taskId/:receiverId" element={<ChatResolve />} />
+        <Route path="/chat/:conversationId" element={<Chat />} />
         <Route path="/chat" element={<ChatList />} />
-        <Route path="/chat/resolve/:taskId/:otherUserId" element={<ChatResolve />} />
-        <Route path="/chat/c/:conversationId" element={<ChatThread />} />
-        <Route path="/chat/:taskId/:otherUserId" element={<ChatResolve />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         <Route path="/map" element={<MapPage />} />

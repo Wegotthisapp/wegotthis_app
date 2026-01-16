@@ -1,45 +1,79 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { requireUser } from "../lib/auth";
 
 export default function ChatResolve() {
   const navigate = useNavigate();
-  const { taskId, otherUserId } = useParams();
+  const { taskId, receiverId } = useParams();
+  const [errMsg, setErrMsg] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
-        const user = await requireUser();
+        if (!taskId || taskId === "null" || taskId === "undefined") {
+          setErrMsg(`Missing taskId in URL. Got: ${taskId}`);
+          return;
+        }
+        if (!receiverId || receiverId === "null" || receiverId === "undefined") {
+          setErrMsg(`Missing receiverId in URL. Got: ${receiverId}`);
+          return;
+        }
 
-        const { data: conversationId, error: e1 } = await supabase.rpc(
-          "get_or_create_conversation_by_pair",
-          { p_user1: user.id, p_user2: otherUserId }
-        );
-        if (e1) throw e1;
+        const { data: authData, error: authErr } = await supabase.auth.getUser();
+        if (authErr) throw authErr;
+        const me = authData?.user?.id;
 
-        const { error: e2 } = await supabase.rpc("attach_task_to_conversation", {
-          p_conversation_id: conversationId,
-          p_task_id: taskId,
-        });
-        if (e2) throw e2;
+        if (!me) {
+          setErrMsg("Not logged in.");
+          return;
+        }
 
-        await supabase.from("messages").insert({
-          conversation_id: conversationId,
-          task_id: taskId,
-          type: "task_request",
-          sender_id: user.id,
-          receiver_id: otherUserId,
-          content: "New task request",
-        });
+        if (me === receiverId) {
+          setErrMsg("You cannot start a chat with yourself.");
+          return;
+        }
 
-        navigate(`/chat/c/${conversationId}`, { replace: true });
+        const { data: existing, error: findErr } = await supabase
+          .from("conversations")
+          .select("id, task_id, user1_id, user2_id")
+          .eq("task_id", taskId)
+          .or(
+            `and(user1_id.eq.${me},user2_id.eq.${receiverId}),and(user1_id.eq.${receiverId},user2_id.eq.${me})`
+          )
+          .maybeSingle();
+
+        if (findErr) throw findErr;
+
+        if (existing?.id) {
+          navigate(`/chat/${existing.id}`);
+          return;
+        }
+
+        const { data: created, error: createErr } = await supabase
+          .from("conversations")
+          .insert([
+            {
+              task_id: taskId,
+              user1_id: me,
+              user2_id: receiverId,
+            },
+          ])
+          .select("id")
+          .single();
+
+        if (createErr) throw createErr;
+
+        navigate(`/chat/${created.id}`);
       } catch (err) {
-        console.error("ChatResolve error:", err);
+        console.error(err);
+        const msg = err?.message || JSON.stringify(err);
+        setErrMsg(msg);
+        alert(`Chat failed: ${msg}`);
         navigate("/chat");
       }
     })();
-  }, [taskId, otherUserId, navigate]);
+  }, [taskId, receiverId, navigate]);
 
-  return <div>Loading…</div>;
+  if (errMsg) return <div style={{ padding: 16, color: "red" }}>{errMsg}</div>;
+  return <div style={{ padding: 16 }}>Loading…</div>;
 }

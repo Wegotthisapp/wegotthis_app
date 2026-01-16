@@ -103,7 +103,7 @@ export default function ChatList() {
       {items.map((c) => (
         <Link
           key={c.id}
-          to={`/chat/c/${c.id}`}
+          to={`/chat/${c.id}`}
           style={{
             display: "block",
             padding: 12,
