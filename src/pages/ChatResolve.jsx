@@ -11,38 +11,31 @@ export default function ChatResolve() {
     (async () => {
       try {
         if (!taskId || taskId === "null" || taskId === "undefined") {
-          setErrMsg(`Missing taskId in URL. Got: ${taskId}`);
-          return;
+          throw new Error("Missing taskId in URL");
         }
         if (!receiverId || receiverId === "null" || receiverId === "undefined") {
-          setErrMsg(`Missing receiverId in URL. Got: ${receiverId}`);
-          return;
+          throw new Error("Missing receiverId in URL");
         }
 
         const { data: authData, error: authErr } = await supabase.auth.getUser();
         if (authErr) throw authErr;
+
         const me = authData?.user?.id;
+        if (!me) throw new Error("User not logged in");
+        if (me === receiverId) throw new Error("You cannot chat with yourself");
 
-        if (!me) {
-          setErrMsg("Not logged in.");
-          return;
-        }
+        const user_a = me < receiverId ? me : receiverId;
+        const user_b = me < receiverId ? receiverId : me;
 
-        if (me === receiverId) {
-          setErrMsg("You cannot start a chat with yourself.");
-          return;
-        }
-
-        const { data: existing, error: findErr } = await supabase
+        const { data: existing, error: existingErr } = await supabase
           .from("conversations")
-          .select("id, task_id, user1_id, user2_id")
+          .select("id")
           .eq("task_id", taskId)
-          .or(
-            `and(user1_id.eq.${me},user2_id.eq.${receiverId}),and(user1_id.eq.${receiverId},user2_id.eq.${me})`
-          )
+          .eq("user_a", user_a)
+          .eq("user_b", user_b)
           .maybeSingle();
 
-        if (findErr) throw findErr;
+        if (existingErr) throw existingErr;
 
         if (existing?.id) {
           navigate(`/chat/${existing.id}`);
@@ -51,29 +44,41 @@ export default function ChatResolve() {
 
         const { data: created, error: createErr } = await supabase
           .from("conversations")
-          .insert([
-            {
-              task_id: taskId,
-              user1_id: me,
-              user2_id: receiverId,
-            },
-          ])
+          .insert([{ task_id: taskId, user_a, user_b }])
           .select("id")
           .single();
 
-        if (createErr) throw createErr;
+        if (!createErr && created?.id) {
+          navigate(`/chat/${created.id}`);
+          return;
+        }
 
-        navigate(`/chat/${created.id}`);
+        if (createErr?.code === "23505") {
+          const { data: again, error: againErr } = await supabase
+            .from("conversations")
+            .select("id")
+            .eq("task_id", taskId)
+            .eq("user_a", user_a)
+            .eq("user_b", user_b)
+            .single();
+
+          if (againErr) throw againErr;
+          navigate(`/chat/${again.id}`);
+          return;
+        }
+
+        throw createErr;
       } catch (err) {
-        console.error(err);
-        const msg = err?.message || JSON.stringify(err);
+        const msg = err?.message || String(err);
         setErrMsg(msg);
-        alert(`Chat failed: ${msg}`);
         navigate("/chat");
       }
     })();
   }, [taskId, receiverId, navigate]);
 
-  if (errMsg) return <div style={{ padding: 16, color: "red" }}>{errMsg}</div>;
-  return <div style={{ padding: 16 }}>Loading…</div>;
+  return (
+    <div style={{ padding: 16 }}>
+      {errMsg ? `Chat error: ${errMsg}` : "Loading…"}
+    </div>
+  );
 }

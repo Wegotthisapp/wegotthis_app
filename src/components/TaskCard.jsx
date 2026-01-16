@@ -105,13 +105,16 @@ export default function TaskCard({ task, isOwn }) {
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log("DEBUG task.id:", task.id, "task.user_id:", task.user_id);
+                console.log("CHAT CLICK", {
+                  taskId: task?.id,
+                  user_id: task?.user_id,
+                  task,
+                });
                 if (!isOpen) return;
-                const ownerId = task.user_id;
-                if (!ownerId || ownerId === "null" || ownerId === "undefined") {
+                if (!task?.user_id || task.user_id === "null" || task.user_id === "undefined") {
                   return;
                 }
-                navigate(`/chat/resolve/${task.id}/${ownerId}`);
+                navigate(`/chat/resolve/${task.id}/${task.user_id}`);
               }}
               disabled={!task.user_id || !isOpen}
             >
