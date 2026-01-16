@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { categoryOptions } from "../lib/constants";
 import CategoryRow from "../components/CategoryRow";
+import { BRAND } from "../config/brand";
 
 import {
   MapContainer,
@@ -123,7 +124,8 @@ export default function Home() {
      <section style={styles.hero}>
   <div style={styles.heroOverlay} />
 
-  <h1 style={styles.heroTitle}>WeGotThis</h1>
+  <h1 style={styles.heroTitle}>{BRAND.name}</h1>
+  <p style={styles.heroSubtitle}>{BRAND.tagline}</p>
 
   {/* Testo diverso se loggata / non loggata */}
   {!userId ? (

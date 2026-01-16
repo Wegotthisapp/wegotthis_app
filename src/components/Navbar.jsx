@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { BRAND } from "../config/brand";
 
 export default function Navbar() {
   const [user, setUser] = useState(null);
@@ -96,7 +97,10 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <div className="navbar-left">
-        <Link to="/">WeGotThis</Link>
+        <Link to="/">
+          <h1>{BRAND.name}</h1>
+          <p>{BRAND.tagline}</p>
+        </Link>
       </div>
 
       <div className="navbar-right">
