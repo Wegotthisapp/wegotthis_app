@@ -116,6 +116,113 @@ button:hover {
   background: #005ecc;
 }
 
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  margin: 6px 8px 0 0;
+}
+
+.chip--unselected {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid rgba(0,0,0,0.20);
+}
+
+.chip--selected {
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid rgba(0,0,0,0.00);
+}
+
+.chip:hover {
+  opacity: 0.92;
+}
+
+.field-label {
+  display: block;
+  font-weight: 700;
+  margin: 18px 0 8px;
+  color: #111827;
+}
+
+.text-input {
+  width: 100%;
+  padding: 12px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.18);
+  background: #fff;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  font-weight: 600;
+  color: #111827;
+  width: 100%;
+  text-align: left;
+}
+
+.checkbox-row span {
+  display: inline;
+  max-width: 100%;
+}
+
+label.checkbox-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  width: 100% !important;
+  text-align: left !important;
+}
+
+label.checkbox-row span {
+  display: inline !important;
+  margin: 0 !important;
+}
+
+.checkbox-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.checkbox-label {
+  margin: 0 !important;
+  display: inline-block !important;
+  color: #111827 !important;
+  font-weight: 600 !important;
+}
+
+.field-block {
+  margin-top: 10px;
+}
+
+.file-input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.18);
+  background: #fff;
+}
+
+.help-text {
+  margin-top: 6px;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
 /* Auth page */
 .auth-form {
   max-width: 400px;

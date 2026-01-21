@@ -12,7 +12,9 @@ export default function Profile() {
   const [helperCategories, setHelperCategories] = useState([]);
   const [helperTools, setHelperTools] = useState([]);
   const [maxRadiusKm, setMaxRadiusKm] = useState(5); // UI state; DB column will be wired later
-  const [availabilityText, setAvailabilityText] = useState("{}");
+  const [availabilityText, setAvailabilityText] = useState("");
+  const [availableGeneral, setAvailableGeneral] = useState(false);
+  const [availabilityStoredAsJson, setAvailabilityStoredAsJson] = useState(false);
   const [isProfessional, setIsProfessional] = useState(false);
 
   const [rating, setRating] = useState(0);
@@ -60,9 +62,29 @@ export default function Profile() {
         // Try to read either max_distance_km or max_radius_km if present
         const maybeMax = data.max_distance_km ?? data.max_radius_km ?? null;
         if (maybeMax != null) setMaxRadiusKm(Number(maybeMax));
-        setAvailabilityText(
-          data.availability ? JSON.stringify(data.availability, null, 2) : "{}"
-        );
+        if (data.availability) {
+          if (typeof data.availability === "object") {
+            setAvailabilityText(data.availability.note || "");
+            setAvailableGeneral(Boolean(data.availability.general));
+            setAvailabilityStoredAsJson(true);
+          } else if (typeof data.availability === "string") {
+            const trimmedAvailability = data.availability.trim();
+            if (trimmedAvailability) {
+              try {
+                const parsed = JSON.parse(trimmedAvailability);
+                if (parsed && typeof parsed === "object") {
+                  setAvailabilityText(parsed.note || "");
+                  setAvailableGeneral(Boolean(parsed.general));
+                  setAvailabilityStoredAsJson(true);
+                } else {
+                  setAvailabilityText(data.availability);
+                }
+              } catch {
+                setAvailabilityText(data.availability);
+              }
+            }
+          }
+        }
         setIsProfessional(Boolean(data.is_professional));
         setRating(data.rating_as_helper || 0);
         setNumReviews(data.num_helper_reviews || 0);
@@ -221,14 +243,16 @@ export default function Profile() {
       return;
     }
 
-    let parsedAvailability = null;
-    if (availabilityText.trim()) {
-      try {
-        parsedAvailability = JSON.parse(availabilityText);
-      } catch (err) {
-        setError('Availability must be valid JSON (e.g. {"mon":["18-21"]}).');
-        setSaving(false);
-        return;
+    let availabilityValue = null;
+    const trimmedAvailability = availabilityText.trim();
+    if (trimmedAvailability || availableGeneral) {
+      if (availabilityStoredAsJson) {
+        availabilityValue = JSON.stringify({
+          note: trimmedAvailability,
+          general: availableGeneral,
+        });
+      } else {
+        availabilityValue = trimmedAvailability;
       }
     }
 
@@ -240,7 +264,7 @@ export default function Profile() {
       helper_categories: helperCategories,
       helper_tools: helperTools,
       // When DB column is ready, add: max_distance_km: Number(maxRadiusKm)
-      availability: parsedAvailability,
+      availability: availabilityValue,
       is_professional: isProfessional,
     };
 
@@ -331,7 +355,7 @@ export default function Profile() {
         </label>
 
         <div>
-          <p style={labelStyle}>Helper categories</p>
+          <label className="field-label">Helper categories</label>
           <div style={chipContainer}>
             {categoryOptions.map((cat) => {
               const selected = helperCategories.includes(cat);
@@ -340,7 +364,7 @@ export default function Profile() {
                   type="button"
                   key={cat}
                   onClick={() => toggleChip(cat, setHelperCategories, helperCategories)}
-                  style={{ ...chipStyle, ...(selected ? chipSelected : {}) }}
+                  className={`chip ${selected ? "chip--selected" : "chip--unselected"}`}
                 >
                   {cat}
                 </button>
@@ -350,7 +374,7 @@ export default function Profile() {
         </div>
 
         <div>
-          <p style={labelStyle}>Tools you have</p>
+          <label className="field-label">Tools you have</label>
           <div style={chipContainer}>
             {toolsOptions.map((tool) => {
               const selected = helperTools.includes(tool);
@@ -359,7 +383,7 @@ export default function Profile() {
                   type="button"
                   key={tool}
                   onClick={() => toggleChip(tool, setHelperTools, helperTools)}
-                  style={{ ...chipStyle, ...(selected ? chipSelected : {}) }}
+                  className={`chip ${selected ? "chip--selected" : "chip--unselected"}`}
                 >
                   {tool}
                 </button>
@@ -380,24 +404,72 @@ export default function Profile() {
           />
         </label>
 
-        <label>
-          Availability (JSON, e.g. {"{\"mon\":[\"18-21\"],\"sat\":[\"10-16\"]}"})
-          <textarea
-            value={availabilityText}
-            onChange={(e) => setAvailabilityText(e.target.value)}
-            rows={4}
-            style={textareaStyle}
+        <label className="field-label">Availability</label>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            gap: 10,
+            width: "100%",
+            textAlign: "left",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={availableGeneral}
+            onChange={(e) => setAvailableGeneral(e.target.checked)}
           />
-        </label>
+          <span
+            style={{ fontWeight: 600, cursor: "pointer", textAlign: "left" }}
+            onClick={() => setAvailableGeneral((v) => !v)}
+          >
+            I’m generally available
+          </span>
+        </div>
 
-        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <label className="field-label">Preferred times (optional)</label>
+        <input
+          className="text-input"
+          type="text"
+          value={availabilityText}
+          onChange={(e) => setAvailabilityText(e.target.value)}
+          placeholder="e.g., Mon–Fri after 18:00, Sat 10:00–16:00"
+        />
+
+        <label className="field-label">Professional</label>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            gap: 10,
+            width: "100%",
+            textAlign: "left",
+          }}
+        >
           <input
             type="checkbox"
             checked={isProfessional}
             onChange={(e) => setIsProfessional(e.target.checked)}
           />
-          I am a professional (can provide certificates)
-        </label>
+          <span
+            style={{ fontWeight: 600, cursor: "pointer", textAlign: "left" }}
+            onClick={() => setIsProfessional((v) => !v)}
+          >
+            I am a professional (can provide certificates)
+          </span>
+        </div>
+
+        {isProfessional && (
+          <div className="field-block">
+            <label className="field-label">Certificates (optional)</label>
+            <input className="file-input" type="file" multiple />
+            <div className="help-text">
+              You can upload certificates later. (MVP placeholder)
+            </div>
+          </div>
+        )}
 
         <button type="submit" disabled={saving} style={saveButton}>
           {saving ? "Saving…" : "Save Profile"}
@@ -603,34 +675,10 @@ const inputStyle = {
   marginTop: "0.35rem",
 };
 
-const textareaStyle = {
-  ...inputStyle,
-  minHeight: "120px",
-};
-
-const labelStyle = {
-  margin: "0 0 0.25rem 0",
-  fontWeight: 600,
-};
-
 const chipContainer = {
   display: "flex",
   flexWrap: "wrap",
   gap: "0.5rem",
-};
-
-const chipStyle = {
-  borderRadius: "999px",
-  border: "1px solid #d0d7ff",
-  padding: "0.4rem 0.9rem",
-  backgroundColor: "#f5f7ff",
-  cursor: "pointer",
-};
-
-const chipSelected = {
-  backgroundColor: "#1d4ed8",
-  color: "#fff",
-  borderColor: "#1d4ed8",
 };
 
 const saveButton = {

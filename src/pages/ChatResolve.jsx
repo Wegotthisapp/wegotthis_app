@@ -29,97 +29,46 @@ export default function ChatResolve() {
           return;
         }
 
-        const a = user.id < receiverId ? user.id : receiverId;
-        const b = user.id < receiverId ? receiverId : user.id;
-
         console.log("ChatResolve params:", {
           taskId,
           receiverId,
           userId: user.id,
-          a,
-          b,
         });
 
-        const { data: existing, error: findError } = await supabase
+        const me = user.id;
+
+        const { data: existing, error: findErr } = await supabase
           .from("conversations")
-          .select("id, task_id, user_a, user_b, created_at")
+          .select("id")
           .eq("task_id", taskId)
-          .eq("user_a", a)
-          .eq("user_b", b)
-          .order("created_at", { ascending: true })
-          .limit(1)
+          .or(
+            `and(user_a.eq.${me},user_b.eq.${receiverId}),and(user_a.eq.${receiverId},user_b.eq.${me})`
+          )
           .maybeSingle();
 
-        console.log("ChatResolve existing:", existing, "findError:", findError);
-
-        if (findError) {
-          console.error("ChatResolve findError (likely RLS):", findError);
-        }
+        if (findErr) throw findErr;
 
         if (existing?.id) {
           navigate(`/chat/${existing.id}`);
           return;
         }
 
-        const { data: created, error: createError } = await supabase
+        const { data: created, error: createErr } = await supabase
           .from("conversations")
-          .insert([{ task_id: taskId, user_a: a, user_b: b }])
+          .insert([
+            {
+              task_id: taskId,
+              user_a: me,
+              user_b: receiverId,
+            },
+          ])
           .select("id")
           .single();
 
-        console.log("ChatResolve created:", created, "createError:", createError);
+        if (createErr) throw createErr;
 
-        if (createError) {
-          const isDup =
-            createError.code === "23505" ||
-            String(createError.message || "")
-              .toLowerCase()
-              .includes("duplicate") ||
-            String(createError.details || "")
-              .toLowerCase()
-              .includes("duplicate");
-
-          if (isDup) {
-            const { data: afterDup, error: afterDupErr } = await supabase
-              .from("conversations")
-              .select("id, created_at")
-              .eq("task_id", taskId)
-              .eq("user_a", a)
-              .eq("user_b", b)
-              .order("created_at", { ascending: true })
-              .limit(1)
-              .maybeSingle();
-
-            console.log(
-              "ChatResolve afterDup:",
-              afterDup,
-              "afterDupErr:",
-              afterDupErr
-            );
-
-            if (afterDup?.id) {
-              navigate(`/chat/${afterDup.id}`);
-              return;
-            }
-
-            alert(
-              "Chat error: conversation exists but cannot be read (RLS). Fix policies."
-            );
-            return;
-          }
-
-          alert(
-            `Chat error: ${
-              createError.message || "Could not create conversation."
-            }`
-          );
-          return;
-        }
-
-        if (created?.id) {
-          navigate(`/chat/${created.id}`);
-          return;
-        }
+        navigate(`/chat/${created.id}`);
+        return;
 
         alert("Chat error: could not resolve conversation.");
       } catch (e) {
