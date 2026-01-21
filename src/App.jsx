@@ -16,6 +16,7 @@ import MapPage from "./pages/Map";
 import TaskDetails from "./pages/TaskDetails";
 import Auth from "./pages/Auth";
 import HelperSetup from "./pages/HelperSetup";
+import PublicProfile from "./pages/PublicProfile";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/map" element={<MapPage />} />
         <Route path="/task/:id" element={<TaskDetails />} />
+        <Route path="/profile/:userId" element={<PublicProfile />} />
         <Route path="/auth" element={<Auth />} />
         <Route path="/helper-setup" element={<HelperSetup />} />
       </Routes>

@@ -4,24 +4,21 @@ import { useNavigate } from "react-router-dom";
 function formatDate(dateString) {
   if (!dateString) return "";
   const d = new Date(dateString);
-  return d.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-  });
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
 function formatDistance(max_distance_km) {
   if (max_distance_km == null) return "Distance not specified";
-  if (max_distance_km < 1) return "< 1 km away";
-  return `${max_distance_km.toFixed(1)} km away`;
+  const km = Number(max_distance_km);
+  if (Number.isNaN(km)) return "Distance not specified";
+  if (km < 1) return "< 1 km away";
+  return `${km.toFixed(1)} km away`;
 }
 
 function formatPrice(price_min, price_max, currency = "EUR") {
   if (price_min == null && price_max == null) return "Price to be discussed";
   const cur = currency || "EUR";
-  if (price_min != null && price_max != null) {
-    return `${price_min}-${price_max} ${cur}`;
-  }
+  if (price_min != null && price_max != null) return `${price_min}-${price_max} ${cur}`;
   if (price_min != null) return `From ${price_min} ${cur}`;
   return `Up to ${price_max} ${cur}`;
 }
@@ -45,9 +42,7 @@ export default function TaskCard({ task, isOwn }) {
 
   const priceLabel = formatPrice(task.price_min, task.price_max, task.currency);
   const distanceLabel = formatDistance(task.max_distance_km);
-  const postedLabel = task.created_at
-    ? `Posted on ${formatDate(task.created_at)}`
-    : "";
+  const postedLabel = task.created_at ? `Posted on ${formatDate(task.created_at)}` : "";
 
   return (
     <div
@@ -65,9 +60,7 @@ export default function TaskCard({ task, isOwn }) {
     >
       <div style={styles.topRow}>
         <div style={styles.leftTop}>
-          {task.category && (
-            <span style={styles.category}>{task.category}</span>
-          )}
+          {task.category && <span style={styles.category}>{task.category}</span>}
           {isOwn && <span style={styles.badge}>My task</span>}
         </div>
       </div>
@@ -76,9 +69,7 @@ export default function TaskCard({ task, isOwn }) {
 
       {task.description && (
         <p style={styles.description}>
-          {task.description.length > 80
-            ? task.description.slice(0, 77) + "..."
-            : task.description}
+          {task.description.length > 80 ? task.description.slice(0, 77) + "..." : task.description}
         </p>
       )}
 
@@ -87,12 +78,9 @@ export default function TaskCard({ task, isOwn }) {
           <span style={styles.price}>{priceLabel}</span>
           <span style={styles.meta}>{distanceLabel}</span>
           {postedLabel && <span style={styles.meta}>{postedLabel}</span>}
-          {!isOpen && (
-            <span style={styles.statusTag}>
-              {task.status || "unavailable"}
-            </span>
-          )}
+          {!isOpen && <span style={styles.statusTag}>{task.status || "unavailable"}</span>}
         </div>
+
         <div style={styles.actionCol}>
           {!isOwn && (
             <button
@@ -105,15 +93,8 @@ export default function TaskCard({ task, isOwn }) {
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log("CHAT CLICK", {
-                  taskId: task?.id,
-                  user_id: task?.user_id,
-                  task,
-                });
                 if (!isOpen) return;
-                if (!task?.user_id || task.user_id === "null" || task.user_id === "undefined") {
-                  return;
-                }
+                if (!task?.user_id) return;
                 navigate(`/chat/resolve/${task.id}/${task.user_id}`);
               }}
               disabled={!task.user_id || !isOpen}

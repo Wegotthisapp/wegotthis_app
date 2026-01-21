@@ -13,16 +13,31 @@ export default function Tasks() {
       setLoading(true);
       setError("");
 
-      // get logged in user
       const { data: userData } = await supabase.auth.getUser();
       const user = userData?.user;
       setUserId(user?.id || null);
 
-      // fetch tasks
       const { data, error } = await supabase
         .from("tasks")
         .select(
-          "id, user_id, title, description, category, price_min, price_max, currency, max_distance_km, location_lat, location_lng, created_at, status"
+          [
+            "id",
+            "user_id",
+            "title",
+            "description",
+            "category",
+            "status",
+            "created_at",
+            "price_min",
+            "price_max",
+            "currency",
+            "barter",
+            "is_negotiable",
+            "max_distance_km",
+            "location_text",
+            "location_lat",
+            "location_lng",
+          ].join(", ")
         )
         .eq("status", "open")
         .order("created_at", { ascending: false });
@@ -40,9 +55,7 @@ export default function Tasks() {
     init();
   }, []);
 
-  if (loading) {
-    return <div className="container">Loading tasks...</div>;
-  }
+  if (loading) return <div className="container">Loading tasks...</div>;
 
   if (error) {
     return (
@@ -60,11 +73,7 @@ export default function Tasks() {
         <p>No tasks found yet. Try creating one from “Add Task”.</p>
       ) : (
         tasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            isOwn={userId && task.user_id === userId}
-          />
+          <TaskCard key={task.id} task={task} isOwn={userId && task.user_id === userId} />
         ))
       )}
     </div>

@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { categoryOptions, toolsOptions } from "../lib/constants";
 
-// Simple formatter to show price range consistently
 const formatSuggestedPrice = (min, max, currency) => {
   const cur = currency || "EUR";
   if (min && max) return `${min}–${max} ${cur}`;
@@ -15,26 +14,36 @@ const formatSuggestedPrice = (min, max, currency) => {
 export default function AddTask() {
   const navigate = useNavigate();
 
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!data?.user) {
+        navigate("/login", { replace: true });
+      }
+    })();
+  }, [navigate]);
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [toolsNeeded, setToolsNeeded] = useState([]);
+
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   const [currency, setCurrency] = useState("EUR");
+
   const [distanceValue, setDistanceValue] = useState("");
   const [distanceUnit, setDistanceUnit] = useState("km");
+
   const [locationLat, setLocationLat] = useState("");
   const [locationLng, setLocationLng] = useState("");
-  const [locationLabel, setLocationLabel] = useState("");
+  const [locationLabel, setLocationLabel] = useState(""); // saved to location_text
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [showManualCoords, setShowManualCoords] = useState(false);
+
   const [loading, setLoading] = useState(false);
 
-  // ---------------------------------------
-  // ✨ AI REAL: SUGGEST DESCRIPTION
-  // ---------------------------------------
   const handleAiDescription = async () => {
     if (!title && !category) {
       setDescription(
@@ -57,13 +66,11 @@ export default function AddTask() {
         return;
       }
 
-      // fallback se AI non restituisce nulla
       setDescription(
         `I need help with: ${title || "this task"}. We can discuss specifics such as what needs to be done, timing, and compensation.`
       );
     } catch (err) {
       console.error("AI description error", err);
-      // fallback locale
       setDescription(
         `I'm looking for someone to help with ${title || "this task"}${
           category ? ` (${category})` : ""
@@ -72,9 +79,6 @@ export default function AddTask() {
     }
   };
 
-  // ---------------------------------------
-  // ✨ AI REAL: SUGGEST PRICE
-  // ---------------------------------------
   const handleAiPrice = async () => {
     if (!category && !title) {
       setPriceMin("30");
@@ -90,7 +94,7 @@ export default function AddTask() {
         body: JSON.stringify({
           title,
           category,
-          city: "Milan", // per ora fisso, in futuro useremo geolocalizzazione
+          city: "Milan",
         }),
       });
 
@@ -103,14 +107,12 @@ export default function AddTask() {
         return;
       }
 
-      // fallback se AI non restituisce nulla
       setPriceMin("30");
       setPriceMax("50");
       setCurrency("EUR");
     } catch (err) {
       console.error("AI price error", err);
 
-      // fallback basato su categoria (come prima)
       let min = "30";
       let max = "50";
       if (category === "Cleaning") {
@@ -151,16 +153,13 @@ export default function AddTask() {
 
     const priceMinNumber = priceMin !== "" ? Number(priceMin) : null;
     const priceMaxNumber = priceMax !== "" ? Number(priceMax) : null;
+
     const distanceNumber = distanceValue !== "" ? Number(distanceValue) : null;
     const maxDistanceNumber =
       distanceNumber != null && !Number.isNaN(distanceNumber)
-        ? Math.max(
-            0,
-            Math.round(
-              distanceUnit === "m" ? distanceNumber / 1000 : distanceNumber
-            )
-          )
+        ? Math.max(0, distanceUnit === "m" ? distanceNumber / 1000 : distanceNumber)
         : null;
+
     const locationLatNumber = locationLat !== "" ? Number(locationLat) : null;
     const locationLngNumber = locationLng !== "" ? Number(locationLng) : null;
 
@@ -170,14 +169,22 @@ export default function AddTask() {
       description,
       category,
       tools_needed: toolsNeeded,
+
       price_min: priceMinNumber,
       price_max: priceMaxNumber,
-      currency: "EUR",
+      currency: currency || "EUR",
+
       max_distance_km: maxDistanceNumber,
+
+      location_text: locationLabel || null,
       location_lat: locationLatNumber,
       location_lng: locationLngNumber,
+
+      barter: false,
+      is_negotiable: false,
+
       status: "open",
-      created_at: new Date().toISOString(),
+      // created_at: new Date().toISOString(), // optional; keep DB default if you have it
     };
 
     const { error } = await supabase.from("tasks").insert([task]);
@@ -186,35 +193,28 @@ export default function AddTask() {
 
     if (error) {
       alert("Error creating task: " + error.message);
-    } else {
-      alert("Task created!");
-      // Clear form after successful submit
-      setTitle("");
-      setDescription("");
-      setCategory("");
-      setToolsNeeded([]);
-      setPriceMin("");
-      setPriceMax("");
-      setCurrency("EUR");
-      setMaxDistanceKm("");
-      setLocationLat("");
-      setLocationLng("");
-      navigate("/tasks");
-      setTitle("");
-      setDescription("");
-      setCategory("");
-      setToolsNeeded([]);
-      setPriceMin("");
-      setPriceMax("");
-      setCurrency("EUR");
-      setDistanceValue("");
-      setDistanceUnit("km");
-      setLocationLat("");
-      setLocationLng("");
-      setLocationLabel("");
-      setLocationError("");
-      setShowManualCoords(false);
+      return;
     }
+
+    alert("Task created!");
+
+    // Reset once
+    setTitle("");
+    setDescription("");
+    setCategory("");
+    setToolsNeeded([]);
+    setPriceMin("");
+    setPriceMax("");
+    setCurrency("EUR");
+    setDistanceValue("");
+    setDistanceUnit("km");
+    setLocationLat("");
+    setLocationLng("");
+    setLocationLabel("");
+    setLocationError("");
+    setShowManualCoords(false);
+
+    navigate("/tasks");
   };
 
   const toggleTool = (tool) => {
@@ -228,7 +228,6 @@ export default function AddTask() {
       <h2 style={{ textAlign: "center", marginBottom: "1rem" }}>Add a New Task</h2>
 
       <form onSubmit={handleSubmit} style={formStyle}>
-        {/* TITLE */}
         <input
           type="text"
           placeholder="Title"
@@ -238,7 +237,6 @@ export default function AddTask() {
           style={inputStyle}
         />
 
-        {/* DESCRIPTION + AI BUTTON */}
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           <textarea
             placeholder="Description"
@@ -252,7 +250,6 @@ export default function AddTask() {
           </button>
         </div>
 
-        {/* CATEGORY */}
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
@@ -267,17 +264,9 @@ export default function AddTask() {
           ))}
         </select>
 
-        {/* TOOLS */}
         <div>
           <label>Tools (click to select):</label>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "0.5rem",
-              marginTop: "0.5rem",
-            }}
-          >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" }}>
             {toolsOptions.map((tool) => (
               <div
                 key={tool}
@@ -285,9 +274,7 @@ export default function AddTask() {
                 style={{
                   padding: "0.5rem 1rem",
                   borderRadius: "20px",
-                  border: toolsNeeded.includes(tool)
-                    ? "1px solid #007BFF"
-                    : "1px solid #ccc",
+                  border: toolsNeeded.includes(tool) ? "1px solid #007BFF" : "1px solid #ccc",
                   background: toolsNeeded.includes(tool) ? "#007BFF" : "#f9f9f9",
                   color: toolsNeeded.includes(tool) ? "#fff" : "#000",
                   cursor: "pointer",
@@ -299,7 +286,6 @@ export default function AddTask() {
           </div>
         </div>
 
-        {/* PRICE RANGE + AI BUTTON */}
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           <input
             type="number"
@@ -327,9 +313,11 @@ export default function AddTask() {
             style={{ ...inputStyle, width: "120px", backgroundColor: "#f8fafc" }}
           />
         </div>
+
         <button type="button" onClick={handleAiPrice} style={aiButtonStyle}>
           ✨ Suggest Price
         </button>
+
         {formatSuggestedPrice(priceMin, priceMax, currency) && (
           <p style={{ margin: 0, color: "#555" }}>
             Suggested: {formatSuggestedPrice(priceMin, priceMax, currency)}
@@ -367,6 +355,7 @@ export default function AddTask() {
             >
               {locating ? "Getting location…" : "Use my current location"}
             </button>
+
             <button
               type="button"
               onClick={() => setShowManualCoords((prev) => !prev)}
@@ -376,10 +365,9 @@ export default function AddTask() {
             </button>
           </div>
 
-          {locationError && (
-            <p style={{ color: "#b91c1c", margin: "0.25rem 0 0 0" }}>{locationError}</p>
-          )}
-          {(locationLat && locationLng) && (
+          {locationError && <p style={{ color: "#b91c1c", margin: "0.25rem 0 0 0" }}>{locationError}</p>}
+
+          {locationLat && locationLng && (
             <p style={{ margin: "0.35rem 0 0 0", color: "#0f172a" }}>
               Using coordinates: {locationLat}, {locationLng}
             </p>
@@ -423,7 +411,7 @@ export default function AddTask() {
           <input
             type="number"
             min="0"
-            step="1"
+            step="0.1"
             placeholder="Search radius"
             value={distanceValue}
             onChange={(e) => setDistanceValue(e.target.value)}
@@ -438,11 +426,11 @@ export default function AddTask() {
             <option value="m">Meters</option>
           </select>
         </div>
+
         <p style={{ margin: "0", color: "#555", fontSize: "0.9rem" }}>
-          We store this in km; meters will be converted and rounded.
+          We store this in km; meters will be converted.
         </p>
 
-        {/* SUBMIT */}
         <button type="submit" disabled={loading} style={buttonStyle}>
           {loading ? "Creating..." : "Create Task"}
         </button>
@@ -451,34 +439,10 @@ export default function AddTask() {
   );
 }
 
-const containerStyle = {
-  maxWidth: "600px",
-  margin: "2rem auto",
-  padding: "1rem",
-};
-
-const formStyle = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-};
-
-const inputStyle = {
-  width: "100%",
-  padding: "0.75rem",
-  borderRadius: "8px",
-  border: "1px solid #ddd",
-  fontSize: "1rem",
-};
-
-const buttonStyle = {
-  padding: "0.75rem",
-  background: "#007BFF",
-  color: "white",
-  border: "none",
-  borderRadius: "8px",
-  cursor: "pointer",
-};
+const containerStyle = { maxWidth: "600px", margin: "2rem auto", padding: "1rem" };
+const formStyle = { display: "flex", flexDirection: "column", gap: "0.75rem" };
+const inputStyle = { width: "100%", padding: "0.75rem", borderRadius: "8px", border: "1px solid #ddd", fontSize: "1rem" };
+const buttonStyle = { padding: "0.75rem", background: "#007BFF", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" };
 
 const aiButtonStyle = {
   alignSelf: "flex-start",
