@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { categoryOptions } from "../lib/constants";
 import CategoryRow from "../components/CategoryRow";
@@ -144,13 +145,13 @@ export default function Home() {
         )}
 
         {!userId ? (
-          <a href="/signup" style={styles.ctaLink}>
+          <Link to="/signup" style={styles.ctaLink}>
             <button style={styles.ctaButton}>Create Your First Task</button>
-          </a>
+          </Link>
         ) : (
-          <a href="/add-task" style={styles.ctaLink}>
+          <Link to="/add-task" style={styles.ctaLink}>
             <button style={styles.ctaButton}>Create a New Task</button>
-          </a>
+          </Link>
         )}
       </section>
 
