@@ -1,55 +1,51 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
 export default function ChatResolve() {
   const navigate = useNavigate();
-  const { taskId, receiverId } = useParams();
+  const { receiverId } = useParams();
+  const [err, setErr] = useState("");
 
   useEffect(() => {
-    const run = async () => {
+    (async () => {
       try {
-        const { data: authData, error: authErr } =
-          await supabase.auth.getUser();
-        if (authErr) {
-          console.error("ChatResolve authErr:", authErr);
-          alert("Chat error: not authenticated.");
-          return;
-        }
-        const user = authData?.user;
-        if (!user?.id) {
-          console.error("ChatResolve: no user");
-          alert("Chat error: no user session.");
+        setErr("");
+
+        const { data: auth } = await supabase.auth.getUser();
+        const me = auth?.user?.id;
+
+        if (!me) {
+          navigate("/login", { replace: true });
           return;
         }
 
-        if (!taskId || !receiverId) {
-          console.error("ChatResolve: missing params", { taskId, receiverId });
-          alert("Chat error: missing parameters.");
+        if (!receiverId) {
+          setErr("Missing receiver id.");
           return;
         }
 
-        console.log("ChatResolve params:", {
-          taskId,
-          receiverId,
-          userId: user.id,
-        });
+        if (receiverId === me) {
+          setErr("You cannot chat with yourself.");
+          return;
+        }
 
-        const me = user.id;
+        const [a, b] = [me, receiverId].sort();
 
         const { data: existing, error: findErr } = await supabase
           .from("conversations")
           .select("id")
-          .eq("task_id", taskId)
           .or(
-            `and(user_a.eq.${me},user_b.eq.${receiverId}),and(user_a.eq.${receiverId},user_b.eq.${me})`
+            `and(user_a.eq.${a},user_b.eq.${b}),and(user_a.eq.${b},user_b.eq.${a})`
           )
+          .order("created_at", { ascending: false })
+          .limit(1)
           .maybeSingle();
 
         if (findErr) throw findErr;
 
         if (existing?.id) {
-          navigate(`/chat/${existing.id}`);
+          navigate(`/chat/${existing.id}`, { replace: true });
           return;
         }
 
@@ -57,9 +53,8 @@ export default function ChatResolve() {
           .from("conversations")
           .insert([
             {
-              task_id: taskId,
-              user_a: me,
-              user_b: receiverId,
+              user_a: a,
+              user_b: b,
             },
           ])
           .select("id")
@@ -67,18 +62,14 @@ export default function ChatResolve() {
 
         if (createErr) throw createErr;
 
-        navigate(`/chat/${created.id}`);
-        return;
-
-        alert("Chat error: could not resolve conversation.");
+        navigate(`/chat/${created.id}`, { replace: true });
       } catch (e) {
-        console.error("ChatResolve fatal:", e);
-        alert("Chat error: unexpected failure (see console).");
+        console.error("ChatResolve error:", e);
+        setErr(e?.message || "Unexpected failure");
       }
-    };
+    })();
+  }, [navigate, receiverId]);
 
-    run();
-  }, [taskId, receiverId, navigate]);
-
-  return <div style={{ padding: 20 }}>Resolving chat…</div>;
+  if (err) return <div style={{ padding: 16 }}>Chat error: {err}</div>;
+  return <div style={{ padding: 16 }}>Opening chat…</div>;
 }
