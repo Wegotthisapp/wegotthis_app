@@ -33,13 +33,14 @@ export default function ChatResolve() {
       const b = [meId, otherUserId].sort()[1];
       const pairKey = `${a}:${b}`;
 
-      // 1) get or create conversation (PAIR-based)
+      // 1) get or create conversation (task + pair)
       let conversationId = null;
 
       const { data: existingConv, error: convFindErr } = await supabase
         .from("conversations")
         .select("id")
         .eq("pair_key", pairKey)
+        .eq("task_id", taskId)
         .maybeSingle();
 
       if (convFindErr) {
@@ -53,7 +54,7 @@ export default function ChatResolve() {
       } else {
         const { data: createdConv, error: convCreateErr } = await supabase
           .from("conversations")
-          .insert([{ user_a: a, user_b: b }])
+          .insert([{ user_a: a, user_b: b, task_id: taskId }])
           .select("id")
           .single();
 
@@ -120,8 +121,8 @@ export default function ChatResolve() {
         conversationTaskId = createdCT.id;
       }
 
-      // 3) go to chat thread and preselect the conversation_task
-      navigate(`/chat/${conversationId}?ct=${conversationTaskId}`, { replace: true });
+      // 3) go to task chat thread
+      navigate(`/chat/task/${taskId}/user/${otherUserId}`, { replace: true });
     })();
   }, [taskId, otherUserId, navigate, searchParams]);
 

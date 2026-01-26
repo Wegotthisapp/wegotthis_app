@@ -127,7 +127,7 @@ export default function TaskDetails() {
           {!isMyTask ? (
             <button
               type="button"
-              onClick={() => navigate(`/chat/resolve/${task.id}/${task.user_id}`)}
+              onClick={() => navigate(`/chat/task/${task.id}/user/${task.user_id}`)}
               style={{ padding: "10px 14px", cursor: "pointer" }}
             >
               Chat with this person

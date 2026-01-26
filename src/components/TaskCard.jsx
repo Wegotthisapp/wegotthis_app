@@ -95,7 +95,7 @@ export default function TaskCard({ task, isOwn }) {
                 e.stopPropagation();
                 if (!isOpen) return;
                 if (!task?.user_id) return;
-                navigate(`/chat/resolve/${task.id}/${task.user_id}`);
+                navigate(`/chat/task/${task.id}/user/${task.user_id}`);
               }}
               disabled={!task.user_id || !isOpen}
             >

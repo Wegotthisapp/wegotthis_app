@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 export default function ChatButton({ taskId, otherUserId }) {
   return (
     <Link
-      to={`/chat/resolve/${taskId}/${otherUserId}`}
+      to={`/chat/task/${taskId}/user/${otherUserId}`}
       style={{
         display: "inline-block",
         background: "#007BFF",
