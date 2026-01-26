@@ -132,12 +132,10 @@ export default function Home() {
         <h1 style={styles.heroTitle}>{BRAND.name}</h1>
         <p style={styles.heroSubtitle}>{BRAND.tagline}</p>
 
-        {!userId ? (
-<>
-  <p style={styles.heroSubtitle}>
-    Post a task in seconds and get help from people nearby.
-  </p>
-</>
+        {!user?.id ? (
+          <p style={styles.heroSubtitle}>
+            Post a task in seconds and get help from people nearby.
+          </p>
         ) : (
           <p style={styles.heroSubtitle}>
             Welcome back to your local help hub. Create or answer tasks in your area.
