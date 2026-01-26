@@ -23,10 +23,20 @@ function formatPrice(price_min, price_max, currency = "EUR") {
   return `Up to ${price_max} ${cur}`;
 }
 
-export default function TaskCard({ task, isOwn }) {
+export default function TaskCard({ task, isOwn, user }) {
   const navigate = useNavigate();
   const warnedMissingOwner = useRef(false);
   const isOpen = task?.status ? task.status === "open" : true;
+  const isOwner = user?.id && task.user_id === user.id;
+
+  const goToChat = () => {
+    if (!user?.id) return;
+    if (isOwner) {
+      navigate(`/chat/task/${task.id}`);
+    } else {
+      navigate(`/chat/task/${task.id}/user/${task.user_id}`);
+    }
+  };
 
   useEffect(() => {
     if (!task?.user_id && !warnedMissingOwner.current) {
@@ -82,7 +92,7 @@ export default function TaskCard({ task, isOwn }) {
         </div>
 
         <div style={styles.actionCol}>
-          {!isOwn && (
+          {task?.user_id && (
             <button
               type="button"
               style={{
@@ -95,11 +105,11 @@ export default function TaskCard({ task, isOwn }) {
                 e.stopPropagation();
                 if (!isOpen) return;
                 if (!task?.user_id) return;
-                navigate(`/chat/task/${task.id}/user/${task.user_id}`);
+                goToChat();
               }}
-              disabled={!task.user_id || !isOpen}
+              disabled={!task.user_id || !isOpen || !user?.id}
             >
-              Chat with this person
+              {isOwner ? "Open chat" : "Chat with this person"}
             </button>
           )}
           <div style={styles.arrow}>&rarr;</div>

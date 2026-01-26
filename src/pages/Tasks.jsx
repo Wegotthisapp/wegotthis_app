@@ -6,7 +6,7 @@ export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [userId, setUserId] = useState(null);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     const init = async () => {
@@ -15,7 +15,7 @@ export default function Tasks() {
 
       const { data: userData } = await supabase.auth.getUser();
       const user = userData?.user;
-      setUserId(user?.id || null);
+      setUser(user || null);
 
       const { data, error } = await supabase
         .from("tasks")
@@ -73,7 +73,12 @@ export default function Tasks() {
         <p>No tasks found yet. Try creating one from “Add Task”.</p>
       ) : (
         tasks.map((task) => (
-          <TaskCard key={task.id} task={task} isOwn={userId && task.user_id === userId} />
+          <TaskCard
+            key={task.id}
+            task={task}
+            isOwn={user?.id && task.user_id === user.id}
+            user={user}
+          />
         ))
       )}
     </div>

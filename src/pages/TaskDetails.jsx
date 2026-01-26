@@ -14,13 +14,13 @@ export default function TaskDetails() {
 
   const [task, setTask] = useState(null);
   const [poster, setPoster] = useState(null);
-  const [me, setMe] = useState(null);
+  const [user, setUser] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     (async () => {
       const { data: authData } = await supabase.auth.getUser();
-      setMe(authData?.user?.id || null);
+      setUser(authData?.user || null);
     })();
   }, []);
 
@@ -84,8 +84,19 @@ export default function TaskDetails() {
   }, [id]);
 
   const isMyTask = useMemo(() => {
-    return !!me && !!task?.user_id && me === task.user_id;
-  }, [me, task?.user_id]);
+    return !!user?.id && !!task?.user_id && user.id === task.user_id;
+  }, [user?.id, task?.user_id]);
+
+  const isOwner = user?.id && task?.user_id === user.id;
+
+  const goToChat = () => {
+    if (!user?.id) return;
+    if (isOwner) {
+      navigate(`/chat/task/${task.id}`);
+    } else {
+      navigate(`/chat/task/${task.id}/user/${task.user_id}`);
+    }
+  };
 
   const distanceLabel = formatDistance(task?.max_distance_km);
   const displayName = poster?.full_name || "User";
@@ -124,17 +135,14 @@ export default function TaskDetails() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {!isMyTask ? (
-            <button
-              type="button"
-              onClick={() => navigate(`/chat/task/${task.id}/user/${task.user_id}`)}
-              style={{ padding: "10px 14px", cursor: "pointer" }}
-            >
-              Chat with this person
-            </button>
-          ) : (
-            <div style={{ fontSize: 14, opacity: 0.8 }}>This is your task.</div>
-          )}
+          <button
+            type="button"
+            onClick={goToChat}
+            style={{ padding: "10px 14px", cursor: "pointer" }}
+          >
+            {isOwner ? "Open chat" : "Chat with this person"}
+          </button>
+          {isMyTask && <div style={{ fontSize: 14, opacity: 0.8 }}>This is your task.</div>}
 
           <button
             type="button"

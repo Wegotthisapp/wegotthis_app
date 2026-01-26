@@ -29,7 +29,7 @@ export default function Home() {
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [tasksError, setTasksError] = useState("");
 
-  const [userId, setUserId] = useState(null);
+  const [user, setUser] = useState(null);
 
   const [userPosition, setUserPosition] = useState(null);
   const [geoError, setGeoError] = useState(null);
@@ -60,7 +60,7 @@ export default function Home() {
 
       const { data: userData } = await supabase.auth.getUser();
       const user = userData?.user;
-      setUserId(user?.id || null);
+      setUser(user || null);
 
       const { data, error } = await supabase
         .from("tasks")
@@ -144,7 +144,7 @@ export default function Home() {
           </p>
         )}
 
-        {!userId ? (
+        {!user?.id ? (
           <Link to="/signup" style={styles.ctaLink}>
             <button style={styles.ctaButton}>Create Your First Task</button>
           </Link>
@@ -170,7 +170,7 @@ export default function Home() {
               key={category}
               title={category}
               tasks={groupedByCategory[category]}
-              userId={userId}
+              user={user}
             />
           ))
         )}

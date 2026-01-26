@@ -1,6 +1,6 @@
 import TaskCard from "./TaskCard";
 
-export default function CategoryRow({ title, tasks, userId }) {
+export default function CategoryRow({ title, tasks, user }) {
   if (!tasks || tasks.length === 0) return null;
 
   return (
@@ -12,7 +12,8 @@ export default function CategoryRow({ title, tasks, userId }) {
           <div key={task.id} style={styles.cardWrapper}>
             <TaskCard
               task={task}
-              isOwn={userId && task.user_id === userId}
+              isOwn={user?.id && task.user_id === user.id}
+              user={user}
             />
           </div>
         ))}
