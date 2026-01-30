@@ -90,30 +90,20 @@ export default function TaskDetails() {
   const isOwner = user?.id && task?.user_id === user.id;
 
   const goToChat = () => {
-    if (!user?.id) return;
-    if (isOwner) {
-      navigate(`/chat/task/${task.id}`);
-    } else {
-      navigate(`/chat/task/${task.id}/user/${task.user_id}`);
-    }
-  };
+  if (!user?.id) return;
+  if (!task?.id || !task?.user_id) return;
 
-  const distanceLabel = formatDistance(task?.max_distance_km);
-  const displayName = poster?.full_name || "User";
-  const avatarInitial = (displayName || "U")[0];
+  // If I'm the owner, the "chat with this person" concept doesn't apply yet
+  // (owner needs a "responders list" feature). For now:
+  if (isOwner) {
+    navigate("/chat"); // safe fallback: go to inbox
+    return;
+  }
 
-  const formatCompensation = (t) => {
-    if (t?.barter) return "Barter / Trade";
+  // Non-owner: open/create 1:1 conversation for this task + owner
+  navigate(`/chat?task=${task.id}&with=${task.user_id}`);
+};
 
-    const cur = t?.currency || "EUR";
-    const hasMin = t?.price_min != null;
-    const hasMax = t?.price_max != null;
-
-    if (hasMin && hasMax) return `${t.price_min}–${t.price_max} ${cur}`;
-    if (hasMin) return `${t.price_min} ${cur}+`;
-    if (hasMax) return `Up to ${t.price_max} ${cur}`;
-    return "Not specified";
-  };
 
   if (errorMsg) return <div style={{ padding: 16 }}>Error: {errorMsg}</div>;
   if (!task) return <div style={{ padding: 16 }}>Loading…</div>;

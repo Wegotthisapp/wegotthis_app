@@ -121,6 +121,9 @@ export default function Chat() {
 
   const activeColor = useMemo(() => pickColor(activeCT?.color_index), [activeCT?.color_index]);
 
+  // ---------------------------
+  // AUTH
+  // ---------------------------
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -134,14 +137,120 @@ export default function Chat() {
     };
   }, []);
 
-  // pick up context from navigation state / query param
+  // ---------------------------
+  // URL CONTEXT (ct / task+with)
+  // ---------------------------
+  const getQuery = () => new URLSearchParams(location.search);
+
+  const getCtFromUrl = () => getQuery().get("ct") || null;
+  const getTaskFromUrl = () => getQuery().get("task") || null;
+  const getWithFromUrl = () => getQuery().get("with") || null;
+
+  // pick up activeConversationTaskId from navigation state / query param (?ct=...)
   useEffect(() => {
     const fromState = location?.state?.activeConversationTaskId || null;
-    const fromQuery = new URLSearchParams(location.search).get("ct") || null;
-    const next = fromState || fromQuery || null;
+    const fromQueryCt = getCtFromUrl();
+    const next = fromState || fromQueryCt || null;
     if (next) setActiveConversationTaskId(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location?.state, location.search]);
 
+  // RESOLVE: if we're on Inbox (/chat) but came from Home button with ?task=...&with=...
+  useEffect(() => {
+    if (!me?.id) return;
+    if (isThread) return; // only resolve when on inbox view
+    const taskId = getTaskFromUrl();
+    const withUserId = getWithFromUrl();
+    if (!taskId || !withUserId) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setError("");
+
+        // 1) Find existing 1:1 conversation for this task + pair
+        const meId = me.id;
+
+        const { data: existing, error: findErr } = await supabase
+          .from("conversations")
+          .select("id, task_id, user_a, user_b")
+          .eq("task_id", taskId)
+          .or(
+            `and(user_a.eq.${meId},user_b.eq.${withUserId}),and(user_a.eq.${withUserId},user_b.eq.${meId})`
+          )
+          .maybeSingle();
+
+        if (findErr) throw findErr;
+
+        let convoId = existing?.id || null;
+
+        // 2) Create if missing
+        if (!convoId) {
+          const { data: created, error: createErr } = await supabase
+            .from("conversations")
+            .insert({
+              task_id: taskId,
+              user_a: meId,
+              user_b: withUserId,
+            })
+            .select("id")
+            .single();
+
+          if (createErr) throw createErr;
+          convoId = created?.id || null;
+        }
+
+        if (!convoId) throw new Error("Could not resolve conversation.");
+
+        // 3) Ensure conversation_tasks row exists so chip UI has something to select
+        const { data: existingCT, error: ctErr } = await supabase
+          .from("conversation_tasks")
+          .select("id")
+          .eq("conversation_id", convoId)
+          .eq("task_id", taskId)
+          .maybeSingle();
+
+        if (ctErr) throw ctErr;
+
+        let ctId = existingCT?.id || null;
+
+        if (!ctId) {
+          const { data: insertedCT, error: insertCtErr } = await supabase
+            .from("conversation_tasks")
+            .insert({
+              conversation_id: convoId,
+              task_id: taskId,
+              status: "requested",
+            })
+            .select("id")
+            .single();
+
+          if (insertCtErr) throw insertCtErr;
+          ctId = insertedCT?.id || null;
+        }
+
+        // 4) Navigate to thread + lock chip via ?ct=...
+        // Replace so Back doesn't keep re-triggering resolver.
+        if (!cancelled) {
+          const ctQuery = ctId ? `?ct=${ctId}` : "";
+          navigate(`/chat/${convoId}${ctQuery}`, { replace: true });
+        }
+      } catch (e) {
+        console.error("Chat resolver failed:", e);
+        setError(e?.message || "Could not open chat.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id, isThread, location.search]);
+
+  // ---------------------------
+  // INBOX
+  // ---------------------------
   const fetchInbox = async () => {
     if (!me?.id) return;
     setLoadingInbox(true);
@@ -205,6 +314,9 @@ export default function Chat() {
     setLoadingInbox(false);
   };
 
+  // ---------------------------
+  // THREAD: conversation_tasks
+  // ---------------------------
   const loadConversationTasks = async (conversation_id) => {
     if (!conversation_id) return;
 
@@ -250,7 +362,10 @@ export default function Chat() {
 
     setConversationTasks(filtered);
 
+    // If URL provides ?ct=... prefer it; else pick first available
+    const preferredCtId = getCtFromUrl();
     setActiveConversationTaskId((prev) => {
+      if (preferredCtId && filtered.some((x) => x.id === preferredCtId)) return preferredCtId;
       if (prev && filtered.some((x) => x.id === prev)) return prev;
       return filtered[0]?.id || null;
     });
@@ -258,6 +373,9 @@ export default function Chat() {
     setLoadingTasksBar(false);
   };
 
+  // ---------------------------
+  // TASK DETAILS
+  // ---------------------------
   const loadTaskDetails = async (taskId) => {
     if (!taskId) {
       setActiveTaskDetails(null);
@@ -289,6 +407,9 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationTaskId]);
 
+  // ---------------------------
+  // LOAD THREAD
+  // ---------------------------
   const loadConversationById = async (id) => {
     if (!me?.id || !id) return;
     setLoadingThread(true);
@@ -472,9 +593,7 @@ export default function Chat() {
                     {taskTitles[conv.task_id] || "Conversation"}
                   </div>
                   <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                    {conv.last_message_at
-                      ? new Date(conv.last_message_at).toLocaleString()
-                      : "—"}
+                    {conv.last_message_at ? new Date(conv.last_message_at).toLocaleString() : "—"}
                   </div>
                 </div>
                 <Link
@@ -545,6 +664,12 @@ export default function Chat() {
                     </button>
                   );
                 })}
+              </div>
+            )}
+
+            {!loadingTasksBar && conversationTasks.length === 0 && (
+              <div style={{ color: "#64748b" }}>
+                No active tasks found for this conversation.
               </div>
             )}
           </div>

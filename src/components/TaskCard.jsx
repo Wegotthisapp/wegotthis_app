@@ -26,16 +26,22 @@ function formatPrice(price_min, price_max, currency = "EUR") {
 export default function TaskCard({ task, isOwn, user }) {
   const navigate = useNavigate();
   const warnedMissingOwner = useRef(false);
+
   const isOpen = task?.status ? task.status === "open" : true;
-  const isOwner = user?.id && task.user_id === user.id;
+  const isOwner = user?.id && task?.user_id === user.id;
 
   const goToChat = () => {
     if (!user?.id) return;
+    if (!task?.id || !task?.user_id) return;
+
+    // Owner view: for now send to inbox (until responders-per-task view exists)
     if (isOwner) {
-      navigate(`/chat/task/${task.id}`);
-    } else {
-      navigate(`/chat/task/${task.id}/user/${task.user_id}`);
+      navigate("/chat");
+      return;
     }
+
+    // Non-owner: open/create 1:1 conversation for this task + owner
+    navigate(`/chat?task=${task.id}&with=${task.user_id}`);
   };
 
   useEffect(() => {
@@ -50,9 +56,9 @@ export default function TaskCard({ task, isOwn, user }) {
     navigate(`/task/${task.id}`);
   };
 
-  const priceLabel = formatPrice(task.price_min, task.price_max, task.currency);
-  const distanceLabel = formatDistance(task.max_distance_km);
-  const postedLabel = task.created_at ? `Posted on ${formatDate(task.created_at)}` : "";
+  const priceLabel = formatPrice(task?.price_min, task?.price_max, task?.currency);
+  const distanceLabel = formatDistance(task?.max_distance_km);
+  const postedLabel = task?.created_at ? `Posted on ${formatDate(task.created_at)}` : "";
 
   return (
     <div
@@ -70,14 +76,14 @@ export default function TaskCard({ task, isOwn, user }) {
     >
       <div style={styles.topRow}>
         <div style={styles.leftTop}>
-          {task.category && <span style={styles.category}>{task.category}</span>}
+          {task?.category && <span style={styles.category}>{task.category}</span>}
           {isOwn && <span style={styles.badge}>My task</span>}
         </div>
       </div>
 
-      <h3 style={styles.title}>{task.title}</h3>
+      <h3 style={styles.title}>{task?.title || "Task"}</h3>
 
-      {task.description && (
+      {task?.description && (
         <p style={styles.description}>
           {task.description.length > 80 ? task.description.slice(0, 77) + "..." : task.description}
         </p>
@@ -88,7 +94,7 @@ export default function TaskCard({ task, isOwn, user }) {
           <span style={styles.price}>{priceLabel}</span>
           <span style={styles.meta}>{distanceLabel}</span>
           {postedLabel && <span style={styles.meta}>{postedLabel}</span>}
-          {!isOpen && <span style={styles.statusTag}>{task.status || "unavailable"}</span>}
+          {!isOpen && <span style={styles.statusTag}>{task?.status || "unavailable"}</span>}
         </div>
 
         <div style={styles.actionCol}>
@@ -107,7 +113,7 @@ export default function TaskCard({ task, isOwn, user }) {
                 if (!task?.user_id) return;
                 goToChat();
               }}
-              disabled={!task.user_id || !isOpen || !user?.id}
+              disabled={!task?.user_id || !isOpen || !user?.id}
             >
               {isOwner ? "Open chat" : "Chat with this person"}
             </button>
