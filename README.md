@@ -1,6 +1,6 @@
-# WeGotThis App
+# Jagodoo App
 
-This is the source code for the WeGotThis MVP.
+This is the source code for the Jagodoo MVP.
 
 ## Setup
 1. Run `npm install`
