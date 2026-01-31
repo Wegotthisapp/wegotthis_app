@@ -154,11 +154,16 @@ export default function TaskChat() {
         });
       } catch (e) {
         console.error("[chat] getOrCreateConversationId failed", e);
-        throw e;
+        setErr("Could not open conversation (no conversation id returned). Check RLS/permissions.");
+        setLoading(false);
+        return;
       }
       if (!convoId) {
         setErr("Could not open conversation (no conversation id returned). Check RLS/permissions.");
+        setLoading(false);
+        return;
       }
+      setErr("");
       setActiveOtherId(ownerId);
       setActiveConversationId(convoId);
       setPeople([]);

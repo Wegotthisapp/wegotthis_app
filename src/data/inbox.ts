@@ -39,7 +39,7 @@ export async function fetchInbox(userId: string): Promise<InboxRow[]> {
   if (conversationIds.length > 0) {
     const { data, error: msgErr } = await supabase
       .from("messages")
-      .select("conversation_id, created_at, content")
+      .select("conversation_id, created_at, content, body")
       .in("conversation_id", conversationIds)
       .order("created_at", { ascending: false })
       .limit(2000);
@@ -57,7 +57,7 @@ export async function fetchInbox(userId: string): Promise<InboxRow[]> {
     if (!lastByConversation.has(m.conversation_id)) {
       lastByConversation.set(m.conversation_id, {
         created_at: m.created_at,
-        content: m.content ?? null,
+        content: m.body ?? m.content ?? null,
       });
     }
   }
