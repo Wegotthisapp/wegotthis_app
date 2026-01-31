@@ -72,47 +72,38 @@ export default function TaskChat() {
     });
   }
 
-  async function getOrCreateConversation(taskId, meId, otherId) {
-    const pk = pairKey(meId, otherId);
-
+  async function getOrCreateConversationId({ taskId, userA, userB, pairKey }) {
     // 1) try select by unique key
-    const { data: existing, error: selErr } = await supabase
+    const first = await supabase
       .from("conversations")
       .select("id")
       .eq("task_id", taskId)
-      .eq("pair_key", pk)
+      .eq("pair_key", pairKey)
       .maybeSingle();
 
-    if (selErr) throw selErr;
-    if (existing?.id) return existing.id;
+    if (first.error) throw first.error;
+    if (first.data?.id) return first.data.id;
 
-    // 2) insert (race-safe via unique constraint)
-    const { data: inserted, error: insErr } = await supabase
-      .from("conversations")
-      .insert({
-        task_id: taskId,
-        user_a: meId,
-        user_b: otherId,
-        last_message_at: new Date().toISOString(), // will be overwritten when real messages exist
-      })
-      .select("id")
-      .maybeSingle();
+    // 2) insert WITHOUT expecting returned row (RLS may hide it)
+    const ins = await supabase.from("conversations").insert({
+      task_id: taskId,
+      user_a: userA,
+      user_b: userB,
+      last_message_at: new Date().toISOString(), // overwritten when real messages exist
+    });
 
-    if (insErr) {
-      console.error("Conversation insert failed:", insErr);
-    }
-    if (!insErr && inserted?.id) return inserted.id;
+    if (ins.error && ins.error.code !== "23505") throw ins.error;
 
-    // 3) fallback re-select (if unique collision)
-    const { data: again, error: againErr } = await supabase
+    // 3) re-select to obtain id
+    const second = await supabase
       .from("conversations")
       .select("id")
       .eq("task_id", taskId)
-      .eq("pair_key", pk)
-      .maybeSingle();
+      .eq("pair_key", pairKey)
+      .single();
 
-    if (againErr) throw againErr;
-    return again?.id || null;
+    if (second.error) throw second.error;
+    return second.data.id;
   }
 
   async function archiveConversation(conversationId) {
@@ -150,7 +141,21 @@ export default function TaskChat() {
       const ownerId = taskRow.user_id;
 
       // Non-owner always chats with OWNER. Ignore otherUserId.
-      const convoId = await getOrCreateConversation(taskId, me.id, ownerId);
+      const pk = pairKey(me.id, ownerId);
+      console.log("[chat] pairKey", pk);
+      console.log("[chat] userA", me.id, "userB", ownerId);
+      let convoId = null;
+      try {
+        convoId = await getOrCreateConversationId({
+          taskId,
+          userA: me.id,
+          userB: ownerId,
+          pairKey: pk,
+        });
+      } catch (e) {
+        console.error("[chat] getOrCreateConversationId failed", e);
+        throw e;
+      }
       if (!convoId) {
         setErr("Could not open conversation (no conversation id returned). Check RLS/permissions.");
       }

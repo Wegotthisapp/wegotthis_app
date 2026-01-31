@@ -75,40 +75,36 @@ export default function TaskChat() {
     const pk = pairKey(meId, otherId);
 
     // 1) try select by unique key
-    const { data: existing, error: selErr } = await supabase
+    const first = await supabase
       .from("conversations")
       .select("id")
       .eq("task_id", taskId)
       .eq("pair_key", pk)
       .maybeSingle();
 
-    if (selErr) throw selErr;
-    if (existing?.id) return existing.id;
+    if (first.error) throw first.error;
+    if (first.data?.id) return first.data.id;
 
-    // 2) insert (race-safe via unique constraint)
-    const { data: inserted, error: insErr } = await supabase
-      .from("conversations")
-      .insert({
-        task_id: taskId,
-        user_a: meId,
-        user_b: otherId,
-        last_message_at: new Date().toISOString(), // will be overwritten when real messages exist
-      })
-      .select("id")
-      .maybeSingle();
+    // 2) insert WITHOUT expecting returned row (RLS may hide it)
+    const ins = await supabase.from("conversations").insert({
+      task_id: taskId,
+      user_a: meId,
+      user_b: otherId,
+      last_message_at: new Date().toISOString(), // will be overwritten when real messages exist
+    });
 
-    if (!insErr && inserted?.id) return inserted.id;
+    if (ins.error && ins.error.code !== "23505") throw ins.error;
 
-    // 3) fallback re-select (if unique collision)
-    const { data: again, error: againErr } = await supabase
+    // 3) re-select to obtain id
+    const second = await supabase
       .from("conversations")
       .select("id")
       .eq("task_id", taskId)
       .eq("pair_key", pk)
-      .maybeSingle();
+      .single();
 
-    if (againErr) throw againErr;
-    return again?.id || null;
+    if (second.error) throw second.error;
+    return second.data.id;
   }
 
   async function archiveConversation(conversationId) {
