@@ -1,5 +1,5 @@
-import ChatInbox from "./ChatInbox";
+import Inbox from "./Inbox";
 
 export default function Chat() {
-  return <ChatInbox />;
+  return <Inbox />;
 }
