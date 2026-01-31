@@ -1,3 +1,4 @@
+// LEGACY - do not use.
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
@@ -15,7 +16,7 @@ export default function ChatList() {
 
         const { data: convs, error: cErr } = await supabase
           .from("conversations")
-          .select("id, user_a, user_b, last_message_at")
+          .select("id, task_id, user_a, user_b, last_message_at")
           .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
           .order("last_message_at", { ascending: false, nullsFirst: false });
 
@@ -75,6 +76,7 @@ export default function ChatList() {
           const otherUserId = c.user_a === user.id ? c.user_b : c.user_a;
           return {
             id: c.id,
+            taskId: c.task_id || null,
             otherUserId,
             lastMessageAt: c.last_message_at,
             unread: unreadByConv[c.id] || 0,
@@ -103,7 +105,7 @@ export default function ChatList() {
       {items.map((c) => (
         <Link
           key={c.id}
-          to={`/chat/${c.id}`}
+          to={c.taskId ? `/chat/task/${c.taskId}/user/${c.otherUserId}` : "/chat"}
           style={{
             display: "block",
             padding: 12,

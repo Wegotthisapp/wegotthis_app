@@ -90,19 +90,16 @@ export default function TaskDetails() {
   const isOwner = user?.id && task?.user_id === user.id;
 
   const goToChat = () => {
-  if (!user?.id) return;
-  if (!task?.id || !task?.user_id) return;
+    if (!user?.id) return;
+    if (!task?.id || !task?.user_id) return;
 
-  // If I'm the owner, the "chat with this person" concept doesn't apply yet
-  // (owner needs a "responders list" feature). For now:
-  if (isOwner) {
-    navigate("/chat"); // safe fallback: go to inbox
-    return;
-  }
+    if (isOwner) {
+      navigate(`/chat/task/${task.id}`);
+      return;
+    }
 
-  // Non-owner: open/create 1:1 conversation for this task + owner
-  navigate(`/chat?task=${task.id}&with=${task.user_id}`);
-};
+    navigate(`/chat/task/${task.id}/user/${task.user_id}`);
+  };
 
 
   if (errorMsg) return <div style={{ padding: 16 }}>Error: {errorMsg}</div>;

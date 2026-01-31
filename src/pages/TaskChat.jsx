@@ -1,35 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabaseClient";
 
-// PEOPLE chips palette (distinct from Inbox blue/violet)
-const PERSON_COLORS = [
-  { bg: "#fce7f3", border: "#f9a8d4" }, // pink
-  { bg: "#ffedd5", border: "#fdba74" }, // orange
-  { bg: "#fef9c3", border: "#fde047" }, // yellow
-  { bg: "#dcfce7", border: "#86efac" }, // green
-  { bg: "#ccfbf1", border: "#5eead4" }, // teal
-  { bg: "#f3f4f6", border: "#d1d5db" }, // gray
-];
+const TYPE_COLORS = {
+  ask: { bg: "#dbeafe", fg: "#1e40af", border: "#bfdbfe" },   // blue
+  offer: { bg: "#ede9fe", fg: "#5b21b6", border: "#ddd6fe" }, // violet
+};
+function typeMeta(task_type) {
+  const t = (task_type || "ask").toLowerCase();
+  return TYPE_COLORS[t] || TYPE_COLORS.ask;
+}
 
 function safeName(profile, fallback) {
   if (!profile) return fallback;
-  return profile.nickname || profile.full_name || profile.username || fallback;
+  return profile.full_name || profile.username || profile.nickname || fallback;
 }
 
-function makePairKey(a, b) {
-  const [x, y] = [a, b].sort();
-  return `${x}_${y}`;
+function pairKey(a, b) {
+  const [x, y] = [String(a), String(b)].sort();
+  return `${x}:${y}`; // IMPORTANT: matches generated column expression
 }
 
 export default function TaskChat() {
+  console.log("✅ TaskChat LOADED - NEW VERSION");
   const { taskId, otherUserId } = useParams();
   const navigate = useNavigate();
 
-  const [userId, setUserId] = useState(null);
+  const [me, setMe] = useState(null);
 
   const [task, setTask] = useState(null);
-  const [people, setPeople] = useState([]); // responders list: [{otherUserId, conversationId, lastMessageAt, profile}]
+  const [people, setPeople] = useState([]); // responders list
   const [activeOtherId, setActiveOtherId] = useState(otherUserId || null);
   const [activeConversationId, setActiveConversationId] = useState(null);
 
@@ -37,134 +37,174 @@ export default function TaskChat() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [err, setErr] = useState("");
+
+  const listRef = useRef(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
+    let mounted = true;
+    (async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (!mounted) return;
+      if (error || !data?.user) setErr("Please log in");
+      else setMe(data.user);
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
-
-  const personColorMap = useMemo(() => {
-    const map = new Map();
-    people.forEach((p, idx) => map.set(p.otherUserId, PERSON_COLORS[idx % PERSON_COLORS.length]));
-    return map;
-  }, [people]);
 
   async function loadMessages(convoId) {
     const { data, error } = await supabase
       .from("messages")
-      .select("id,conversation_id,sender_id,body,created_at")
+      .select("id, conversation_id, sender_id, receiver_id, body, content, created_at, read_at")
       .eq("conversation_id", convoId)
       .order("created_at", { ascending: true });
 
-    if (error) console.error(error);
+    if (error) {
+      setErr(error.message);
+      setMessages([]);
+      return;
+    }
     setMessages(data || []);
+    requestAnimationFrame(() => {
+      if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    });
   }
 
-  async function getOrCreateConversation(taskId, me, other) {
-    const pair_key = makePairKey(me, other);
+  async function getOrCreateConversation(taskId, meId, otherId) {
+    const pk = pairKey(meId, otherId);
 
-    // 1) try select
+    // 1) try select by unique key
     const { data: existing, error: selErr } = await supabase
       .from("conversations")
       .select("id")
       .eq("task_id", taskId)
-      .eq("pair_key", pair_key)
+      .eq("pair_key", pk)
       .maybeSingle();
 
-    if (selErr) console.error(selErr);
+    if (selErr) throw selErr;
     if (existing?.id) return existing.id;
 
-    // 2) insert (race-safe due to unique constraint task_id+pair_key)
+    // 2) insert (race-safe via unique constraint)
     const { data: inserted, error: insErr } = await supabase
       .from("conversations")
       .insert({
         task_id: taskId,
-        user1_id: me,
-        user2_id: other,
-        pair_key,
-        last_message_at: new Date().toISOString(),
+        user_a: meId,
+        user_b: otherId,
+        last_message_at: new Date().toISOString(), // will be overwritten when real messages exist
       })
       .select("id")
       .maybeSingle();
 
+    if (insErr) {
+      console.error("Conversation insert failed:", insErr);
+    }
     if (!insErr && inserted?.id) return inserted.id;
 
-    // 3) if insert failed (likely race), re-select
-    if (insErr) console.error(insErr);
-    const { data: again } = await supabase
+    // 3) fallback re-select (if unique collision)
+    const { data: again, error: againErr } = await supabase
       .from("conversations")
       .select("id")
       .eq("task_id", taskId)
-      .eq("pair_key", pair_key)
+      .eq("pair_key", pk)
       .maybeSingle();
 
+    if (againErr) throw againErr;
     return again?.id || null;
   }
 
+  async function archiveConversation(conversationId) {
+    if (!me?.id || !conversationId) return;
+    await supabase.from("conversation_archives").insert({
+      user_id: me.id,
+      conversation_id: conversationId,
+    });
+  }
+
   async function loadAll() {
-    if (!userId || !taskId) return;
+    if (!me?.id || !taskId) return;
     setLoading(true);
+    setErr("");
 
     // 1) task
     const { data: taskRow, error: taskErr } = await supabase
       .from("tasks")
-      .select("id,title,user_id,status,price,created_at,description")
+      .select("id, title, user_id, status, task_type, price_min, price_max, currency, is_negotiable, max_distance_km, description")
       .eq("id", taskId)
       .maybeSingle();
 
     if (taskErr || !taskRow) {
-      console.error(taskErr);
+      setErr(taskErr?.message || "Task not found.");
+      setTask(null);
       setLoading(false);
       return;
     }
     setTask(taskRow);
 
-    const isMine = taskRow.user_id === userId;
+    const isMine = taskRow.user_id === me.id;
 
-    // 2) If NOT my task: go straight to owner thread (no “select a person”)
+    // 2) If NOT my task: direct 1:1 with owner (no responder list)
     if (!isMine) {
       const ownerId = taskRow.user_id;
-      const targetOther = otherUserId || ownerId;
 
-      const convoId = await getOrCreateConversation(taskId, userId, targetOther);
-      setActiveOtherId(targetOther);
+      // Non-owner always chats with OWNER. Ignore otherUserId.
+      const convoId = await getOrCreateConversation(taskId, me.id, ownerId);
+      if (!convoId) {
+        setErr("Could not open conversation (no conversation id returned). Check RLS/permissions.");
+      }
+      setActiveOtherId(ownerId);
       setActiveConversationId(convoId);
-
-      if (convoId) await loadMessages(convoId);
-
-      // no need to load responders chips for non-owner view (optional, but keep UI clean)
       setPeople([]);
+      if (convoId) await loadMessages(convoId);
       setLoading(false);
       return;
     }
 
-    // 3) If my task: load responders (people who have conversations on this task)
+    // 3) If my task: responders = conversations for this task (excluding archived)
     const { data: convs, error: convErr } = await supabase
       .from("conversations")
-      .select("id,user1_id,user2_id,last_message_at")
+      .select("id, user_a, user_b, last_message_at")
       .eq("task_id", taskId)
-      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
-      .order("last_message_at", { ascending: false });
+      .order("last_message_at", { ascending: false, nullsFirst: false });
 
     if (convErr) {
-      console.error(convErr);
+      setErr(convErr.message);
       setPeople([]);
       setLoading(false);
       return;
     }
 
     const convoRows = convs || [];
-    const otherIds = convoRows.map((c) => (c.user1_id === userId ? c.user2_id : c.user1_id));
 
-    // profiles (adjust table name/fields if yours differ)
-    const { data: profs } = await supabase
-      .from("profiles")
-      .select("id,full_name,username,nickname,avatar_url")
-      .in("id", otherIds);
+    // archives
+    const convoIds = convoRows.map((c) => c.id);
+    const { data: archives } = await supabase
+      .from("conversation_archives")
+      .select("conversation_id")
+      .eq("user_id", me.id)
+      .in("conversation_id", convoIds);
 
-    const profMap = new Map((profs || []).map((p) => [p.id, p]));
+    const archivedSet = new Set((archives || []).map((a) => a.conversation_id));
+    const visibleConvos = convoRows.filter((c) => !archivedSet.has(c.id));
 
-    const builtPeople = convoRows.map((c) => {
-      const oid = c.user1_id === userId ? c.user2_id : c.user1_id;
+    // Build otherIds
+    const otherIds = visibleConvos.map((c) => (c.user_a === me.id ? c.user_b : c.user_a));
+
+    // Profiles (public)
+    let profMap = new Map();
+    if (otherIds.length > 0) {
+      const { data: profs } = await supabase
+        .from("public_profiles")
+        .select("id, full_name, username, nickname, avatar_url")
+        .in("id", otherIds);
+
+      profMap = new Map((profs || []).map((p) => [p.id, p]));
+    }
+
+    const builtPeople = visibleConvos.map((c) => {
+      const oid = c.user_a === me.id ? c.user_b : c.user_a;
       return {
         otherUserId: oid,
         conversationId: c.id,
@@ -175,10 +215,17 @@ export default function TaskChat() {
 
     setPeople(builtPeople);
 
-    const initialOther = otherUserId || activeOtherId || builtPeople[0]?.otherUserId || null;
-    setActiveOtherId(initialOther);
+    // Auto-open rules:
+    // - 0 responders: no active convo
+    // - >=1: open most recent (already sorted)
+    const initial = otherUserId
+      ? builtPeople.find((p) => p.otherUserId === otherUserId)
+      : builtPeople[0];
 
-    const initialConvo = builtPeople.find((p) => p.otherUserId === initialOther)?.conversationId || null;
+    const initialOther = initial?.otherUserId || null;
+    const initialConvo = initial?.conversationId || null;
+
+    setActiveOtherId(initialOther);
     setActiveConversationId(initialConvo);
 
     if (initialConvo) await loadMessages(initialConvo);
@@ -190,31 +237,46 @@ export default function TaskChat() {
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, taskId, otherUserId]);
+  }, [me?.id, taskId, otherUserId]);
 
   async function onSelectPerson(oid) {
     setActiveOtherId(oid);
     const convoId = people.find((p) => p.otherUserId === oid)?.conversationId || null;
     setActiveConversationId(convoId);
+
+    // keep URL stable
     navigate(`/chat/task/${taskId}/user/${oid}`, { replace: true });
+
     if (convoId) await loadMessages(convoId);
   }
 
   async function send() {
-    if (!draft.trim() || !activeConversationId || !userId) return;
+    if (!draft.trim() || !activeConversationId || !me?.id) return;
     setSending(true);
+    setErr("");
 
     const body = draft.trim();
     setDraft("");
 
+    // determine receiver
+    let receiver = null;
+    if (task?.user_id === me.id) {
+      receiver = activeOtherId; // owner -> responder
+    } else {
+      receiver = task?.user_id; // responder -> owner
+    }
+
     const { error: msgErr } = await supabase.from("messages").insert({
       conversation_id: activeConversationId,
-      sender_id: userId,
+      task_id: taskId,
+      sender_id: me.id,
+      receiver_id: receiver,
       body,
+      type: "text",
     });
 
     if (msgErr) {
-      console.error(msgErr);
+      setErr(msgErr.message);
       setSending(false);
       return;
     }
@@ -228,32 +290,81 @@ export default function TaskChat() {
     setSending(false);
   }
 
-  async function setStatus(newStatus) {
-    if (!task) return;
-    await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id);
-    setTask({ ...task, status: newStatus });
+  async function markThreadRead() {
+    if (!me?.id || !activeConversationId) return;
+    await supabase
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("conversation_id", activeConversationId)
+      .eq("receiver_id", me.id)
+      .is("read_at", null);
   }
 
-  if (loading)
-    return <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, color: "#111827" }}>Loading…</div>;
-  if (!task)
-    return <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, color: "#111827" }}>Task not found.</div>;
+  useEffect(() => {
+    if (!activeConversationId || !me?.id) return;
 
-  const isMine = task.user_id === userId;
+    markThreadRead();
+
+    const channel = supabase
+      .channel(`messages:conversation:${activeConversationId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${activeConversationId}` },
+        (payload) => {
+          const msg = payload.new;
+          setMessages((prev) => [...prev, msg]);
+          requestAnimationFrame(() => {
+            if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+          });
+          if (msg.sender_id !== me.id) markThreadRead();
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, me?.id]);
+
+  if (!me) {
+    return (
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
+        <p style={{ color: "#ef4444" }}>{err || "Please log in"}</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, color: "#111827" }}>
+        Loading…
+      </div>
+    );
+  }
+
+  if (!task) {
+    return (
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, color: "#111827" }}>
+        Task not found.
+      </div>
+    );
+  }
+
+  const isMine = task.user_id === me.id;
+  const meta = typeMeta(task.task_type);
 
   const activeProfile = people.find((p) => p.otherUserId === activeOtherId)?.profile || null;
   const personLabel = safeName(activeProfile, "Someone");
-  const headerTitle = isMine ? task.title : `${task.title} — ${personLabel}`;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, color: "#111827" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div>
           <h2 style={{ margin: 0, color: "#111827" }}>Chat</h2>
-          <div style={{ color: "#6b7280", marginTop: 6 }}>
-            {isMine ? "Pick a person to open a 1:1 thread." : "Direct chat with the task owner."}
+          <div style={{ color: "#475569", marginTop: 6 }}>
+            {isMine ? "Manage responders for this task." : "Direct chat with the task owner."}
           </div>
         </div>
+
         <button
           onClick={() => navigate("/chat")}
           style={{
@@ -262,7 +373,7 @@ export default function TaskChat() {
             border: "1px solid #e5e7eb",
             background: "white",
             color: "#111827",
-            fontWeight: 700,
+            fontWeight: 800,
             cursor: "pointer",
           }}
         >
@@ -270,114 +381,160 @@ export default function TaskChat() {
         </button>
       </div>
 
-      {/* PEOPLE SELECTOR (only for my tasks) */}
-      {isMine && (
-        <div style={{ marginTop: 18 }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
-            PEOPLE WHO RESPONDED ({people.length})
+      {/* TASK HEADER */}
+      <div
+        style={{
+          marginTop: 16,
+          border: `1px solid ${meta.border}`,
+          borderRadius: 18,
+          padding: 16,
+          background: "white",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span
+            style={{
+              background: meta.bg,
+              color: meta.fg,
+              border: `1px solid ${meta.border}`,
+              padding: "0.18rem 0.55rem",
+              borderRadius: 999,
+              fontWeight: 900,
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            {task.task_type === "offer" ? "OFFER" : "ASK"}
+          </span>
+
+          <div style={{ fontWeight: 950, fontSize: 16, color: "#111827" }}>
+            {isMine ? task.title : `${task.title} — ${personLabel}`}
           </div>
-
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {people.map((p) => {
-              const c = personColorMap.get(p.otherUserId);
-              const active = p.otherUserId === activeOtherId;
-              const label = safeName(p.profile, `User ${p.otherUserId.slice(0, 6)}`);
-
-              return (
-                <button
-                  key={p.otherUserId}
-                  onClick={() => onSelectPerson(p.otherUserId)}
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 999,
-                    border: `2px solid ${active ? c.border : "transparent"}`,
-                    background: c.bg,
-                    color: "#111827",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    maxWidth: "100%",
-                  }}
-                  title={label}
-                >
-                  <span
-                    style={{
-                      display: "inline-block",
-                      maxWidth: 240,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {label}
-                  </span>
-                </button>
-              );
-            })}
-
-            {people.length === 0 && (
-              <div style={{ padding: 12, border: "1px solid #e5e7eb", borderRadius: 14, color: "#6b7280" }}>
-                No one has messaged on this task yet.
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* TASK DETAILS WINDOW */}
-      <div style={{ marginTop: 18, border: "1px solid #e5e7eb", borderRadius: 18, padding: 16, background: "white" }}>
-        <div style={{ fontWeight: 900, fontSize: 16, color: "#111827" }}>{headerTitle}</div>
-
-        <div style={{ display: "flex", gap: 18, marginTop: 12, alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>STATUS</div>
-            <div style={{ fontWeight: 800, marginTop: 4, color: "#111827" }}>{task.status || "open"}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>PRICE</div>
-            <div style={{ fontWeight: 800, marginTop: 4, color: "#111827" }}>{task.price ?? "—"}</div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
-          <button style={btnSoft} disabled={!activeConversationId}>
-            Counter
-          </button>
-          <button style={btnPrimary} disabled={!activeConversationId}>
-            Accept offer
-          </button>
-          <button style={btnSoft} disabled={!activeConversationId}>
-            Agree price
-          </button>
-          <button style={btnSoft} onClick={() => navigate(`/task/${task.id}`)}>
-            Open task
-          </button>
-          {isMine && (
-            <button
-              style={btnSoft}
-              onClick={() => setStatus("completed")}
-              disabled={task.status === "completed"}
-              title="Mark task completed"
-            >
-              Mark done
-            </button>
-          )}
         </div>
 
         {task.description ? (
-          <div style={{ marginTop: 14, color: "#374151", lineHeight: 1.5 }}>{task.description}</div>
+          <div style={{ marginTop: 10, color: "#374151", lineHeight: 1.5 }}>{task.description}</div>
         ) : null}
+
+        <div style={{ marginTop: 12, display: "flex", gap: 18, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>STATUS</div>
+            <div style={{ fontWeight: 900, marginTop: 4 }}>{task.status || "open"}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>PRICE</div>
+            <div style={{ fontWeight: 900, marginTop: 4 }}>
+              {task.price_min != null || task.price_max != null
+                ? `${task.price_min ?? ""}${task.price_min != null && task.price_max != null ? "-" : ""}${task.price_max ?? ""} ${task.currency || "EUR"}`
+                : task.price ?? "—"}{" "}
+              {task.is_negotiable ? "(negotiable)" : ""}
+            </div>
+          </div>
+
+          <button
+            onClick={() => navigate(`/task/${task.id}`)}
+            style={{
+              marginLeft: "auto",
+              padding: "10px 14px",
+              borderRadius: 999,
+              border: "1px solid #e5e7eb",
+              background: "white",
+              color: "#111827",
+              fontWeight: 900,
+              cursor: "pointer",
+            }}
+          >
+            Open task
+          </button>
+        </div>
       </div>
+
+      {/* RESPONDERS (owner only) */}
+      {isMine && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10, fontWeight: 900, letterSpacing: "0.12em" }}>
+            PEOPLE WHO RESPONDED ({people.length})
+          </div>
+
+          {people.length === 0 ? (
+            <div style={{ padding: 14, border: "1px solid #e5e7eb", borderRadius: 14, color: "#475569", background: "white" }}>
+              <div style={{ fontWeight: 900, color: "#0f172a" }}>No messages yet.</div>
+              <div style={{ marginTop: 6 }}>
+                Tip: Increase distance or boost/share your task to reach more people.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {people.map((p) => {
+                const active = p.otherUserId === activeOtherId;
+                const label = safeName(p.profile, `User ${String(p.otherUserId).slice(0, 6)}`);
+
+                return (
+                  <div
+                    key={p.otherUserId}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 12px",
+                      borderRadius: 999,
+                      border: active ? "2px solid #1d4ed8" : "1px solid #e5e7eb",
+                      background: active ? "#eff6ff" : "white",
+                      cursor: "pointer",
+                      maxWidth: "100%",
+                    }}
+                    title={label}
+                    onClick={() => onSelectPerson(p.otherUserId)}
+                  >
+                    <span style={{ fontWeight: 900, color: "#111827", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {label}
+                    </span>
+
+                    {/* Hide (archive) */}
+                    <button
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await archiveConversation(p.conversationId);
+                        // reload list; if we archived the active one, it will select the next available automatically
+                        await loadAll();
+                      }}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 999,
+                        border: "1px solid #e5e7eb",
+                        background: "white",
+                        fontWeight: 900,
+                        color: "#475569",
+                        cursor: "pointer",
+                        lineHeight: "22px",
+                        textAlign: "center",
+                      }}
+                      title="Hide this conversation"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* MESSAGES */}
       <div
+        ref={listRef}
         style={{
-          marginTop: 18,
+          marginTop: 16,
           border: "1px solid #e5e7eb",
           borderRadius: 18,
           padding: 16,
           background: "#fafafa",
           minHeight: 260,
-          maxHeight: 420,
+          maxHeight: 440,
           overflowY: "auto",
         }}
       >
@@ -385,7 +542,8 @@ export default function TaskChat() {
           messages.length ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {messages.map((m) => {
-                const mine = m.sender_id === userId;
+                const mine = m.sender_id === me.id;
+                const text = m.body ?? m.content ?? "";
                 return (
                   <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
                     <div
@@ -399,18 +557,21 @@ export default function TaskChat() {
                         whiteSpace: "pre-wrap",
                         overflowWrap: "anywhere",
                       }}
+                      title={m.created_at ? new Date(m.created_at).toLocaleString() : ""}
                     >
-                      {m.body}
+                      {text}
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div style={{ color: "#6b7280" }}>No messages yet in this thread.</div>
+            <div style={{ color: "#475569", fontWeight: 700 }}>No messages yet in this thread.</div>
           )
         ) : (
-          <div style={{ color: "#6b7280" }}>Select a person above to open the thread.</div>
+          <div style={{ color: "#475569", fontWeight: 700 }}>
+            {isMine ? "No responder selected." : "Could not open conversation."}
+          </div>
         )}
       </div>
 
@@ -419,7 +580,7 @@ export default function TaskChat() {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder={activeConversationId ? "Write a message…" : "Select a person to message…"}
+          placeholder={activeConversationId ? "Write a message…" : "Open a thread to message…"}
           disabled={!activeConversationId || sending}
           style={{
             flex: 1,
@@ -434,6 +595,7 @@ export default function TaskChat() {
             if (e.key === "Enter") send();
           }}
         />
+
         <button
           onClick={send}
           disabled={!activeConversationId || sending || !draft.trim()}
@@ -443,7 +605,7 @@ export default function TaskChat() {
             border: "none",
             background: "#2563eb",
             color: "white",
-            fontWeight: 800,
+            fontWeight: 900,
             cursor: "pointer",
             opacity: !activeConversationId || sending || !draft.trim() ? 0.5 : 1,
           }}
@@ -451,26 +613,8 @@ export default function TaskChat() {
           Send
         </button>
       </div>
+
+      {err && <div style={{ marginTop: 12, color: "#ef4444" }}>{err}</div>}
     </div>
   );
 }
-
-const btnSoft = {
-  padding: "10px 14px",
-  borderRadius: 999,
-  border: "1px solid #e5e7eb",
-  background: "white",
-  color: "#111827",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const btnPrimary = {
-  padding: "10px 14px",
-  borderRadius: 999,
-  border: "none",
-  background: "#34d399",
-  color: "#064e3b",
-  fontWeight: 900,
-  cursor: "pointer",
-};

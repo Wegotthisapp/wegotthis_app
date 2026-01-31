@@ -34,14 +34,12 @@ export default function TaskCard({ task, isOwn, user }) {
     if (!user?.id) return;
     if (!task?.id || !task?.user_id) return;
 
-    // Owner view: for now send to inbox (until responders-per-task view exists)
     if (isOwner) {
-      navigate("/chat");
+      navigate(`/chat/task/${task.id}`);
       return;
     }
 
-    // Non-owner: open/create 1:1 conversation for this task + owner
-    navigate(`/chat?task=${task.id}&with=${task.user_id}`);
+    navigate(`/chat/task/${task.id}/user/${task.user_id}`);
   };
 
   useEffect(() => {
