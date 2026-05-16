@@ -2,32 +2,12 @@ import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { BRAND } from "../config/brand";
+import { useAuth } from "../auth/useAuth";
 
 export default function Navbar() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const getUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (data?.user) {
-        setUser(data.user);
-      } else {
-        setUser(null);
-      }
-    };
-
-    getUser();
-
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      getUser();
-    });
-
-    return () => {
-      listener?.subscription?.unsubscribe();
-    };
-  }, []);
 
   useEffect(() => {
     if (!user?.id) {
@@ -69,14 +49,24 @@ export default function Navbar() {
       .channel(`messages:unread:${user.id}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `receiver_id=eq.${user.id}`,
+        },
         () => {
           fetchUnread();
         }
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages" },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "messages",
+          filter: `receiver_id=eq.${user.id}`,
+        },
         () => {
           fetchUnread();
         }
@@ -90,7 +80,6 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
     navigate("/");
   };
 

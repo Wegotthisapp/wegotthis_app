@@ -16,6 +16,17 @@ export type InboxRow = {
 };
 
 export async function fetchInbox(userId: string): Promise<InboxRow[]> {
+  // Explicit user filter before RLS: only fetch conversations this user is part of.
+  const { data: convRows, error: convErr } = await supabase
+    .from("conversations")
+    .select("id")
+    .or(`user_a.eq.${userId},user_b.eq.${userId}`);
+
+  if (convErr) throw convErr;
+
+  const convIds = (convRows ?? []).map((r: any) => r.id as string);
+  if (convIds.length === 0) return [];
+
   const { data: ctRows, error: ctErr } = await supabase
     .from("conversation_tasks")
     .select(
@@ -27,7 +38,8 @@ export async function fetchInbox(userId: string): Promise<InboxRow[]> {
         id, user_a, user_b
       )
     `
-    );
+    )
+    .in("conversation_id", convIds);
 
   if (ctErr) throw ctErr;
 
@@ -35,29 +47,31 @@ export async function fetchInbox(userId: string): Promise<InboxRow[]> {
     .map((r: any) => r.conversation?.id)
     .filter(Boolean);
 
-  let msgRows: any[] = [];
-  if (conversationIds.length > 0) {
-    const { data, error: msgErr } = await supabase
-      .from("messages")
-      .select("conversation_id, created_at, content, body")
-      .in("conversation_id", conversationIds)
-      .order("created_at", { ascending: false })
-      .limit(2000);
-
-    if (msgErr) throw msgErr;
-    msgRows = data ?? [];
-  }
+  // Fetch the latest message for each conversation individually.
+  // This avoids loading an unbounded number of messages client-side just to find
+  // the most recent one per thread.
+  const msgResults = await Promise.all(
+    conversationIds.map((convId) =>
+      supabase
+        .from("messages")
+        .select("conversation_id, created_at, content, body")
+        .eq("conversation_id", convId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    )
+  );
 
   const lastByConversation = new Map<
     string,
     { created_at: string; content: string | null }
   >();
 
-  for (const m of msgRows ?? []) {
-    if (!lastByConversation.has(m.conversation_id)) {
-      lastByConversation.set(m.conversation_id, {
-        created_at: m.created_at,
-        content: m.body ?? m.content ?? null,
+  for (const { data } of msgResults) {
+    if (data) {
+      lastByConversation.set(data.conversation_id, {
+        created_at: data.created_at,
+        content: data.body ?? data.content ?? null,
       });
     }
   }

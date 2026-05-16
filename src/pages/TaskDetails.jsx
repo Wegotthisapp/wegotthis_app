@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../auth/useAuth";
 
 const formatDistance = (maxDistanceKm) => {
   if (maxDistanceKm == null) return "Distance not specified";
@@ -8,21 +9,24 @@ const formatDistance = (maxDistanceKm) => {
   return `${Number(maxDistanceKm).toFixed(1)} km away`;
 };
 
+const formatCompensation = (task) => {
+  if (task.barter) return "Barter";
+  if (task.price_min == null && task.price_max == null) return "Price to be discussed";
+  const cur = task.currency || "EUR";
+  if (task.price_min != null && task.price_max != null)
+    return `${task.price_min}–${task.price_max} ${cur}`;
+  if (task.price_min != null) return `From ${task.price_min} ${cur}`;
+  return `Up to ${task.price_max} ${cur}`;
+};
+
 export default function TaskDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [task, setTask] = useState(null);
   const [poster, setPoster] = useState(null);
-  const [user, setUser] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      const { data: authData } = await supabase.auth.getUser();
-      setUser(authData?.user || null);
-    })();
-  }, []);
 
   useEffect(() => {
     (async () => {
@@ -87,23 +91,19 @@ export default function TaskDetails() {
     return !!user?.id && !!task?.user_id && user.id === task.user_id;
   }, [user?.id, task?.user_id]);
 
-  const isOwner = user?.id && task?.user_id === user.id;
-
   const goToChat = () => {
     if (!user?.id) return;
     if (!task?.id || !task?.user_id) return;
-
-    if (isOwner) {
-      navigate(`/chat/task/${task.id}`);
-      return;
-    }
-
     navigate(`/chat/task/${task.id}/user/${task.user_id}`);
   };
 
 
   if (errorMsg) return <div style={{ padding: 16 }}>Error: {errorMsg}</div>;
   if (!task) return <div style={{ padding: 16 }}>Loading…</div>;
+
+  const distanceLabel = formatDistance(task.max_distance_km);
+  const displayName = poster?.full_name || poster?.id?.slice(0, 8) || "Anonymous";
+  const avatarInitial = displayName.charAt(0).toUpperCase();
 
   return (
     <div style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
@@ -127,7 +127,7 @@ export default function TaskDetails() {
             onClick={goToChat}
             style={{ padding: "10px 14px", cursor: "pointer" }}
           >
-            {isOwner ? "Open chat" : "Chat with this person"}
+            Chat with this person
           </button>
           {isMyTask && <div style={{ fontSize: 14, opacity: 0.8 }}>This is your task.</div>}
 

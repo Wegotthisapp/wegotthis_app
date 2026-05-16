@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { categoryOptions, toolsOptions } from "../lib/constants";
+import { useAuth } from "../auth/useAuth";
 
 const formatSuggestedPrice = (min, max, currency) => {
   const cur = currency || "EUR";
@@ -13,15 +14,13 @@ const formatSuggestedPrice = (min, max, currency) => {
 
 export default function AddTask() {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
 
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data?.user) {
-        navigate("/login", { replace: true });
-      }
-    })();
-  }, [navigate]);
+    if (!authLoading && !user) {
+      navigate("/login", { replace: true });
+    }
+  }, [user, authLoading, navigate]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -141,9 +140,6 @@ export default function AddTask() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData?.user;
 
     if (!user) {
       alert("You must be logged in to create a task.");

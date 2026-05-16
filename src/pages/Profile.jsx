@@ -14,7 +14,6 @@ export default function Profile() {
   const [maxRadiusKm, setMaxRadiusKm] = useState(5); // UI state; DB column will be wired later
   const [availabilityText, setAvailabilityText] = useState("");
   const [availableGeneral, setAvailableGeneral] = useState(false);
-  const [availabilityStoredAsJson, setAvailabilityStoredAsJson] = useState(false);
   const [isProfessional, setIsProfessional] = useState(false);
 
   const [rating, setRating] = useState(0);
@@ -66,7 +65,6 @@ export default function Profile() {
           if (typeof data.availability === "object") {
             setAvailabilityText(data.availability.note || "");
             setAvailableGeneral(Boolean(data.availability.general));
-            setAvailabilityStoredAsJson(true);
           } else if (typeof data.availability === "string") {
             const trimmedAvailability = data.availability.trim();
             if (trimmedAvailability) {
@@ -75,7 +73,6 @@ export default function Profile() {
                 if (parsed && typeof parsed === "object") {
                   setAvailabilityText(parsed.note || "");
                   setAvailableGeneral(Boolean(parsed.general));
-                  setAvailabilityStoredAsJson(true);
                 } else {
                   setAvailabilityText(data.availability);
                 }
@@ -105,7 +102,8 @@ export default function Profile() {
       .from("tasks")
       .select("id, user_id, title, category, created_at, status, assigned_helper_id")
       .eq("user_id", uid)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(100);
 
     if (createdErr) {
       setTasksError(createdErr.message);
@@ -123,7 +121,8 @@ export default function Profile() {
         tasks:task_id ( id, user_id, title, category, created_at, status, assigned_helper_id )
       `)
       .eq("user_id", uid)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(100);
 
     if (helpedErr) {
       setTasksError((prev) =>
@@ -151,16 +150,10 @@ export default function Profile() {
     setTaskActionError("");
     setTaskActionNotice("");
 
-    const { error: offersError } = await supabase
-      .from("task_offers")
-      .delete()
-      .eq("task_id", taskId);
-
-    if (offersError) {
-      setTaskActionError(offersError.message);
-      return;
-    }
-
+    // task_offers and conversation_tasks are CASCADE-deleted by the DB when the
+    // task row is deleted. Messages carry task_id but may not have a DB cascade,
+    // so we delete them first. Conversations themselves are not deleted (they may
+    // hold history the other party still wants to see).
     const { error: messagesError } = await supabase
       .from("messages")
       .delete()
@@ -246,14 +239,10 @@ export default function Profile() {
     let availabilityValue = null;
     const trimmedAvailability = availabilityText.trim();
     if (trimmedAvailability || availableGeneral) {
-      if (availabilityStoredAsJson) {
-        availabilityValue = JSON.stringify({
-          note: trimmedAvailability,
-          general: availableGeneral,
-        });
-      } else {
-        availabilityValue = trimmedAvailability;
-      }
+      availabilityValue = JSON.stringify({
+        note: trimmedAvailability,
+        general: availableGeneral,
+      });
     }
 
     // Build updates WITHOUT updated_at

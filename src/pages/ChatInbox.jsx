@@ -1,3 +1,4 @@
+// LEGACY - do not use. Active inbox is src/pages/Inbox.tsx (rendered via Chat.jsx).
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
