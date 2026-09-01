@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Geolocation } from "@capacitor/geolocation";
 import { supabase } from "../lib/supabaseClient";
 import { categoryOptions, toolsOptions } from "../lib/constants";
 import { useAuth } from "../auth/useAuth";
+import { apiUrl } from "../lib/apiBase";
 
 const formatSuggestedPrice = (min, max, currency) => {
   const cur = currency || "EUR";
@@ -52,7 +54,7 @@ export default function AddTask() {
     }
 
     try {
-      const response = await fetch("/api/generateDescription", {
+      const response = await fetch(apiUrl("/api/generateDescription"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, category }),
@@ -87,7 +89,7 @@ export default function AddTask() {
     }
 
     try {
-      const response = await fetch("/api/suggestPrice", {
+      const response = await fetch(apiUrl("/api/suggestPrice"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -326,25 +328,19 @@ export default function AddTask() {
             <button
               type="button"
               onClick={async () => {
-                if (!navigator.geolocation) {
-                  setLocationError("Geolocation not supported on this device.");
-                  return;
-                }
                 setLocating(true);
                 setLocationError("");
-                navigator.geolocation.getCurrentPosition(
-                  (pos) => {
-                    setLocating(false);
-                    const { latitude, longitude } = pos.coords;
-                    setLocationLat(latitude.toFixed(6));
-                    setLocationLng(longitude.toFixed(6));
-                    setShowManualCoords(false);
-                  },
-                  (err) => {
-                    setLocating(false);
-                    setLocationError(err.message || "Could not get location.");
-                  }
-                );
+                try {
+                  const pos = await Geolocation.getCurrentPosition();
+                  const { latitude, longitude } = pos.coords;
+                  setLocationLat(latitude.toFixed(6));
+                  setLocationLng(longitude.toFixed(6));
+                  setShowManualCoords(false);
+                } catch (err) {
+                  setLocationError(err?.message || "Could not get location.");
+                } finally {
+                  setLocating(false);
+                }
               }}
               style={primaryGhostButton}
               disabled={locating}

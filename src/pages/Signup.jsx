@@ -15,10 +15,16 @@ export default function Signup() {
     e.preventDefault();
     setErr(""); setMsg(""); setLoading(true);
 
+    // Inside the native app there is no meaningful window.location.origin
+    // (it resolves to an internal webview URL), so the confirmation email
+    // must point at the deployed web app instead. VITE_SITE_URL is unset
+    // in the web build, so behavior there is unchanged.
+    const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: window.location.origin + "/auth" }
+      options: { emailRedirectTo: siteUrl + "/auth" }
     });
     if (error) {
       console.error("signUp error", error); // see DevTools console

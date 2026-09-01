@@ -7,6 +7,7 @@ import {
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { Geolocation } from "@capacitor/geolocation";
 import { supabase } from "../lib/supabaseClient";
 
 const formatPrice = (min, max, currency = "EUR") => {
@@ -35,23 +36,25 @@ export default function MapPage() {
   const [tasksError, setTasksError] = useState("");
   const [tasksLoading, setTasksLoading] = useState(true);
 
-  // 1️⃣ Get user location
+  // 1️⃣ Get user location (native permission prompt on iOS/Android, browser API on web)
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setGeoError("Geolocation is not supported by your browser.");
-      return;
-    }
+    let cancelled = false;
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    Geolocation.getCurrentPosition()
+      .then((pos) => {
+        if (cancelled) return;
         const { latitude, longitude } = pos.coords;
         setUserPosition([latitude, longitude]);
-      },
-      (err) => {
+      })
+      .catch((err) => {
+        if (cancelled) return;
         console.error(err);
-        setGeoError("Unable to get your location.");
-      }
-    );
+        setGeoError(err?.message || "Unable to get your location.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 2️⃣ Fetch tasks from Supabase (with lat/lng)
