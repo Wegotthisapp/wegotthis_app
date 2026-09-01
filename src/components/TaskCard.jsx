@@ -28,17 +28,10 @@ export default function TaskCard({ task, isOwn, user }) {
   const warnedMissingOwner = useRef(false);
 
   const isOpen = task?.status ? task.status === "open" : true;
-  const isOwner = user?.id && task?.user_id === user.id;
-
-  const goToChat = () => {
+  const goToChat = (e) => {
+    e?.stopPropagation?.();
     if (!user?.id) return;
     if (!task?.id || !task?.user_id) return;
-
-    if (isOwner) {
-      navigate(`/chat/task/${task.id}`);
-      return;
-    }
-
     navigate(`/chat/task/${task.id}/user/${task.user_id}`);
   };
 
@@ -109,11 +102,11 @@ export default function TaskCard({ task, isOwn, user }) {
                 e.stopPropagation();
                 if (!isOpen) return;
                 if (!task?.user_id) return;
-                goToChat();
+                goToChat(e);
               }}
               disabled={!task?.user_id || !isOpen || !user?.id}
             >
-              {isOwner ? "Open chat" : "Chat with this person"}
+              Chat with this person
             </button>
           )}
           <div style={styles.arrow}>&rarr;</div>
