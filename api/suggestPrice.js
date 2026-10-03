@@ -1,4 +1,27 @@
+// Allow calls from the Capacitor mobile app (iOS: capacitor://localhost,
+// Android: https://localhost) as well as the web app itself.
+const ALLOWED_ORIGINS = [
+  "capacitor://localhost",
+  "https://localhost",
+  "http://localhost",
+  "https://www.jagodoo.com",
+  "https://jagodoo.com",
+];
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
 export default async function handler(req, res) {
+  applyCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+
   try {
     const { title, category, city } = req.body;
 
